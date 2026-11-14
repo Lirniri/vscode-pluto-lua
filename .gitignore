@@ -1,0 +1,12 @@
+node_modules/
+
+# VSIX
+.vs/
+bin/
+obj/
+
+# VS Code extension
+*.vsix
+
+# Local Claude Code settings
+.claude/
