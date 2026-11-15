@@ -92,7 +92,7 @@ function name(
 
 switch test do
     case
-
+    
     break
 end
 
@@ -164,6 +164,18 @@ class Entity
 
     function damage(amount: float): void
         self.hp -= amount
+    end
+
+    public function get_health()
+        self:health()
+    end
+    
+    protected function set_health_only_for_animals()
+        self.hp -= amount
+    end
+
+    private function health()
+        return self.hp
     end
 
     static function make(id: int): Entity
