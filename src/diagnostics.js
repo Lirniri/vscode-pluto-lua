@@ -57,6 +57,8 @@ class DiagnosticsManager
 			luaCompilerPath: config.get("lua.compilerPath", "") || "",
 			duplicates: ["warning", "error", "off"].includes(config.get("diagnostics.duplicateParams", "warning")) ? config.get("diagnostics.duplicateParams", "warning") : "warning",
 			brackets: ["off", "suggest", "auto"].includes(config.get("format.fixMismatchedBrackets", "suggest")) ? config.get("format.fixMismatchedBrackets", "suggest") : "suggest",
+			returnTypes: ["warning", "error", "off"].includes(config.get("diagnostics.returnTypes", "warning")) ? config.get("diagnostics.returnTypes", "warning") : "warning",
+			caseFallthrough: config.get("diagnostics.caseFallthrough", "off") == "hint" ? "hint" : "off",
 			jsonEnabled: config.get("json.enable", true) !== false,
 			jsonFiles: config.get("json.files", ["**/info.json"]),
 			jsonExtensions: config.get("json.extensions", [".pluto", ".lua"]),
@@ -307,6 +309,8 @@ class DiagnosticsManager
 			requires: config.indexEnabled || local,
 			duplicates: config.duplicates,
 			brackets: config.brackets,
+			returnTypes: config.returnTypes,
+			caseFallthrough: config.caseFallthrough,
 		});
 		return problems.map(p => this._toDiagnostic(p, "pluto-lint"));
 	}
@@ -469,7 +473,8 @@ class DiagnosticsManager
 		const range = new vscode.Range(p.line, p.col, p.endLine, Math.max(p.endCol, p.endLine == p.line ? p.col + 1 : 0));
 		const severity = p.severity == "error" ? vscode.DiagnosticSeverity.Error
 			: p.severity == "information" ? vscode.DiagnosticSeverity.Information
-				: vscode.DiagnosticSeverity.Warning;
+				: p.severity == "hint" ? vscode.DiagnosticSeverity.Hint
+					: vscode.DiagnosticSeverity.Warning;
 		const d = new vscode.Diagnostic(range, p.message, severity);
 		d.source = source;
 		if (p.code)

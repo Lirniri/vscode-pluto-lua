@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="-100" y="-100" width="200" height="200">
+      <rect x="-100" y="-100" width="200" height="200" fill="#fff"/>
+      <path d="M-80 0 A80 21 0 0 0 80 0" fill="none" stroke="#000" stroke-width="17"/>
+    </mask>
+  </defs>
+  <circle cx="128" cy="128" r="100" fill="none" stroke="#2f5be0" stroke-width="7" stroke-linecap="round" stroke-dasharray="30 14.5"/>
+  <g transform="translate(120 134) rotate(-22)">
+    <ellipse rx="80" ry="21" fill="none" stroke="#a982f5" stroke-width="9"/>
+    <circle r="50" fill="#8a4fe0" mask="url(#cut)"/>
+    <circle cx="24" cy="-24" r="9" fill="#fff" opacity=".92" mask="url(#cut)"/>
+    <path d="M-80 0 A80 21 0 0 0 80 0" fill="none" stroke="#a982f5" stroke-width="9"/>
+  </g>
+  <circle cx="199" cy="57" r="19" fill="#000080"/>
+  <circle cx="199" cy="57" r="19" fill="none" stroke="#7fa0ff" stroke-width="2" opacity=".8"/>
+</svg>

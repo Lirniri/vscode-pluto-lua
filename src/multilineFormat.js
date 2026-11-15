@@ -158,15 +158,15 @@ function analyze(text, line)
 				}
 				else
 				{
-					stack.push({ kind: "block", name: "do" });
+					stack.push({ kind: "block", name: "do", idx });
 				}
 			}
-			else if (BLOCK_OPENERS.has(v) && !isP(tokens[idx - 1], ".") && !isP(tokens[idx - 1], ":"))
+			else if (BLOCK_OPENERS.has(v) && !isP(tokens[idx - 1], "."))
 			{
 				const afterEnum = (v == "class" || v == "pluto_class") && (isId(tokens[idx - 1], "enum") || isId(tokens[idx - 1], "pluto_enum"));
 				if (!afterEnum && !(v == "function" && isFunctionType(tokens, idx)))
 				{
-					stack.push({ kind: "block", name: v, needsDo: NEEDS_DO.has(v) });
+					stack.push({ kind: "block", name: v, needsDo: NEEDS_DO.has(v), idx });
 				}
 			}
 		}
@@ -298,4 +298,4 @@ function planFirstElement(text, line, col, options, unit, eol)
 	};
 }
 
-module.exports = { stripComment, analyze, planEnter, planFirstElement, indentOf, isParamsParen, isLambdaBody, UNFINISHED };
+module.exports = { stripComment, analyze, planEnter, planFirstElement, indentOf, isParamsParen, isLambdaBody, isFunctionType, BLOCK_OPENERS, NEEDS_DO, UNFINISHED };

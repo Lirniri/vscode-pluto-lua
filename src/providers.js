@@ -8,6 +8,7 @@ const { formatFunctionSource } = require("./functionSource");
 const { collectReturnTags, describeReturnType } = require("./returnTags");
 const { isTypeHintPosition, isNullableType, describeNullable, unionAt, describeUnion } = require("./typeHints");
 const { paramAt, isCompleteType, defaultValuesFor } = require("./defaultValues");
+const { describeNumericFor, forPreviewText } = require("./autoFormat");
 const builtins = require("./builtins");
 const { formatSignature, formatParams, computeFolding } = require("./parser");
 const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES, primitiveDoc } = require("./analysis");
@@ -920,6 +921,17 @@ const completionProvider = {
 				const link = new vscode.MarkdownString("[" + t("declarations.showAll", resolved.symbols.length) + "](command:" + SHOW_DECLARATIONS_COMMAND + "?" + args + " \"" + t("declarations.showAllTooltip") + "\")");
 				link.isTrusted = { enabledCommands: [SHOW_DECLARATIONS_COMMAND] };
 				contents.push(link);
+			}
+			// A numeric `for`: the values the variable goes through, e.g. `for i = 1, 10, 2` → 1, 3, 5, 7, 9.
+			if (chain.parts.length == 1 && chain.word == "for" && vscode.workspace.getConfiguration("pluto").get("hover.forPreview", true) !== false)
+			{
+				const info = describeNumericFor(lineText);
+				if (info)
+				{
+					const md = new vscode.MarkdownString();
+					md.appendMarkdown(forPreviewText(info));
+					contents.push(md);
+				}
 			}
 			return contents.length ? new vscode.Hover(contents, hoverRange) : undefined;
 		},

@@ -16,6 +16,7 @@ const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEd
 const { registerMultilineFormat } = require("./multilineEditor");
 const { registerDefaultValueHint } = require("./defaultValuesEditor");
 const { registerAutoFormat } = require("./autoFormatEditor");
+const { registerSettingsPanel } = require("./settingsPanel");
 const { buildRules, mergeRules, findProblems, CATEGORIES } = require("./highlightColors");
 const { t, resolveLanguage, setLanguage } = require("./i18n");
 
@@ -654,6 +655,7 @@ function activate(context)
 	registerMultilineFormat(context, service);
 	registerDefaultValueHint(context, service);
 	registerAutoFormat(context, service);
+	registerSettingsPanel(context);
 	registerTypeAutoTrigger(context);
 	registerNullableHighlight(context);
 	applyHighlightColors().catch(() => { });

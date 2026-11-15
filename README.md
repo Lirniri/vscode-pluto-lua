@@ -1,3 +1,5 @@
+<p align="center"><img src="readme-logo.png" alt="Pluto → Lua" width="400"></p>
+
 # Pluto Syntax Highlighting
 
 For information regarding the installation, features, & usage of this editor integration, [have a look at our documentation](https://plutolang.github.io/docs/Editor%20Integration).
@@ -22,6 +24,8 @@ Besides syntax highlighting and snippets, the VS Code extension provides languag
 - **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
 - **Default values of parameters**: the type of a parameter that has no default value (`test: bool`) gets a yellow wavy line while the cursor is on it, with a tooltip, and the values that fit the type (`= false`, `= true`) are suggested, by themselves when the cursor rests. See [Default values of parameters](#default-values-of-parameters).
 - **Typing helpers**: a new line after the comma of a multi-line list (after a pause, so you can go on typing), grey suggestions that `Tab` takes (`()` after `function`, ` = ` after `["key"]`, ` then` / ` do` after a block header), a warning for a parameter or table key written twice, and a quick fix (or an automatic fix after a pause) for a closing bracket that does not fit the last opened one (`{ ]`). See [Typing helpers](#typing-helpers).
+- **Settings panel**: the command **Pluto: Settings** opens a window with a tab for each group of settings, switches, choices and real color pickers. See [Settings panel](#settings-panel).
+- **Types and `switch` hints**: a grey `:` after a parameter name that has no type or after the `)` of a function (`Tab` opens the list of types), the values that fit a `return`, a grey `break` / `case` / `default:` and a `:` after a `case`, yellow lines for what is missing, and warnings for a function that does not return what it says. See [Typing helpers](#typing-helpers).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -93,6 +97,22 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.format.fixMismatchedBrackets` | `suggest` | A closer that does not fit (`{ ]`): `off`, `suggest` (underline and quick fix) or `auto` (also replaced by itself after a pause). |
 | `pluto.format.fixMismatchedBracketsDelayMs` | `1200` | The pause before `auto` replaces the closer. `0` = at once. |
 | `pluto.diagnostics.duplicateParams` | `warning` | A name written twice in parameters (`function f(a, a)`) or a key twice in a table: `warning`, `error` or `off`. |
+| `pluto.format.ifBlockWord` | `auto` | Which word is suggested after `if` / `elseif`: `then`, `do` (both are valid in Pluto), `off`, or `auto` (what your file and workspace use). |
+| `pluto.format.suggestFor` | `true` | Suggestions while the header of a `for` is written. |
+| `pluto.format.nameStyle` | `short` | Variable names in those suggestions: `short` (`i`, `k`, `v`, `t`) or `full` (`index`, `key`, `value`, `table_name`). |
+| `pluto.format.names` | `{}` | Your own words for `index`, `key`, `value` and `table` in those suggestions. |
+| `pluto.hover.forPreview` | `true` | Hovering a numeric `for` shows the values the variable goes through. |
+| `pluto.format.suggestParamType` | `true` | A grey `:` after the name of a parameter that has no type; `Tab` inserts `: ` and opens the list of types. |
+| `pluto.format.suggestParamTypeDelayMs` | `600` | The pause before such a grey colon (also after the `)` of a function and after a `case`) is shown. `0` = at once. |
+| `pluto.format.suggestReturnType` | `true` | A grey `: ` after the `)` of a function that has no return type. |
+| `pluto.format.suggestReturnValue` | `true` | The values that fit the return type after `return `. |
+| `pluto.format.suggestCaseColon` | `true` | A grey `:` after the values of a `case`. |
+| `pluto.format.suggestCaseBreak` | `true` | A grey `break` in the body of a `case` that nothing ends. |
+| `pluto.format.suggestCaseWords` | `true` | A grey `case ` / `default:` at the level of the cases of a `switch`. |
+| `pluto.highlight.paramNoType` | `true` | A yellow line under the name of a parameter that has no type, while the cursor is on it. |
+| `pluto.highlight.caseNoColon` | `true` | A yellow line under a `case` that has no `:`, while the cursor is on its line. |
+| `pluto.diagnostics.returnTypes` | `warning` | A function that says it returns a type but never uses `return`, and a `void` function that returns a value: `warning`, `error` or `off`. |
+| `pluto.diagnostics.caseFallthrough` | `off` | `hint` marks a `case` that nothing ends and that runs into the next one. |
 | `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
@@ -282,15 +302,51 @@ function name(
 
 Nothing is suggested when the text is already there (`function name(`), when the header is not finished (`if a and`), in strings and comments, for a type (`x: function`), or for `local function` / `public function` without a name yet. With inline suggestions switched off, the `()` is an item of the completion list instead.
 
+**then or do after `if`.** Pluto accepts `if x then` and `if x do` (`while` and `for` only take `do`). `pluto.format.ifBlockWord` chooses what is suggested: `then`, `do`, `off`, or `auto` (the default), which counts the `if` / `elseif` headers of the current file and follows the one used more; if the file uses both equally, the rest of the workspace decides (files that are not ignored, read once and kept for a few seconds), and `then` is taken when there is nothing to go by.
+
+**Loops.** While the header of a `for` is written, the suggestions go with it (`Tab` takes the first, `Alt+]` shows the next one):
+
+| You typed (`▮` is the cursor) | Suggested |
+| --- | --- |
+| `for▮` | `i = 1, 10`, `i, v in ipairs(t)`, `k, v in pairs(t)`, `t as v`, with places to fill in |
+| `for k, v in▮` | `ipairs(t)`, `pairs(t)`, `next, t` |
+| `for i = 1,▮` | `#items`, the length of the nearest table above |
+| `for i = 1, 10,▮` | the step: `1`, `2`, or `-1`, `-2` when the start is larger than the end |
+
+The nearest table of the file (`local items = { ... }`) gives the name, and its kind puts `ipairs` first for an array and `pairs` first for fields. `pluto.format.nameStyle` chooses `short` words (`i`, `k`, `v`, `t`) or `full` ones (`index`, `key`, `value`, `table_name`), and `pluto.format.names` sets your own words for any of them, e.g. `{ "value": "item" }`. All of it is `pluto.format.suggestFor`; the ready-made snippets are not affected.
+
+**What a numeric loop goes through.** Hover the `for` of a loop with numbers to see the values: `for i = 1, 10, 2` shows `i` takes the values 1, 3, 5, 7, 9 (5 times, step 2). It says when the loop does not run (`for i = 5, 1`), when the step is 0, and for `for i = 1, 3, 5` that the step is larger than the distance, so the loop runs once. `pluto.hover.forPreview` switches it off.
+
+**Types of parameters and of return values.** A parameter written without a type (`value2`) gets a yellow line under its name while the cursor is on it, and after a pause (`pluto.format.suggestParamTypeDelayMs`, 600 ms) a grey `:` next to it. `Tab` inserts `: ` and opens the list of types; then, once the type is complete, the suggestions of the default value take over (`= false`). The grey colon is not shown while the list of completions is open: it comes when you have closed that list (`Esc`, or a choice), however long that takes. `Esc` on the grey text hides it until you type or move the cursor. The same grey `: ` appears after the `)` of a function that has no return type. After `return ` in a function with a return type (`function f(): bool`), the values that fit it are suggested (`true`, `false`; `0`, `1`, `nil`, ... by the type). Class fields are not asked for a type: `public name` is fine in Pluto. `void`, `any` and nullable return types are not asked for a `return`.
+
+**switch and case.** Inside of a `switch`:
+
+| Where | Suggested | Setting |
+| --- | --- | --- |
+| after the values of a `case`: `case 1▮`, `case 2, 3▮` (after the pause) | `:` | `pluto.format.suggestCaseColon` |
+| an empty line in the body of a `case` that nothing ends (not `default`), before the next `case`, `default` or `end` | `break` | `pluto.format.suggestCaseBreak` |
+| an empty line at the level of the cases | `case ` and `default:` (`default` only once) | `pluto.format.suggestCaseWords` |
+
+A `case` without a `:` gets a yellow line under the word `case` while the cursor is on its line (`pluto.highlight.caseNoColon`). `pluto.diagnostics.caseFallthrough` can mark, as a hint, a `case` that nothing ends (`break`, `return`, `goto`, `continue`, `error(...)`) and that runs into the next one; a case with an empty body, which gives two cases one body, is left alone. The Pluto compiler warns about the same thing.
+
+**A function that does not return what it says.** A function with a return type (`function f(): int`) that never uses `return` gets a warning on the type, and a function that says `void` and returns a value gets one on the `return` (`pluto.diagnostics.returnTypes`: `warning`, `error` or `off`). A function that raises an error, a nullable type, `any` and a function without a body are left alone.
+
 **Names written twice.** A parameter that has the same name as an earlier parameter of the function or lambda (`function f(a, a)`, `|x, x| -> x`) and a key that is set twice in one table (`{ a = 1, a = 2 }`, also `a` and `["a"]`) get a warning on the second one. Set `pluto.diagnostics.duplicateParams` to `error` or `off` to change that.
 
 **A closer that does not fit.** If you type `]` where the last opened bracket is `{` and no other open bracket takes a `]`, it is underlined with `Expected '}' to close the bracket opened on line N`, and the quick fix (`Ctrl+.`) replaces it. `pluto.format.fixMismatchedBrackets` chooses what happens: `off` ignores it, `suggest` (default) underlines it and offers the fix, `auto` also replaces it by itself when you stop typing for `pluto.format.fixMismatchedBracketsDelayMs` (1200 ms). Typing or moving the cursor within that time cancels the replacement, and it is one step in the undo history. A forgotten closer (`{ a[1 }`), a stray one, and brackets in strings and comments are not touched.
+
+### Settings panel
+
+Run **Pluto: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Lua, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
+
+It reads and writes the same settings as the standard settings editor and `settings.json`: a change is saved at once in your user settings, a value that is the default is taken out of `settings.json` instead of being written there, and what you change in `settings.json` shows up in the panel. A value that is not allowed (a color that is not a color, a number out of range) is refused with the reason, and the control shows the value that is in force. Only the settings of this extension can be changed with it.
 
 ### Commands
 
 - **Pluto: Run Script** — runs the current file with `pluto`.
 - **Pluto: Lint Script** — checks the current file with `plutoc -p`.
 - **Pluto: Rebuild Workspace Index**
+- **Pluto: Settings** — opens the [settings panel](#settings-panel).
 
 ## Development
 
@@ -326,6 +382,8 @@ The extension is plain JavaScript and needs no build step.
 | `src/jsonPaths.js` | Checks of the paths of files in JSON files |
 | `src/multilineFormat.js`, `src/multilineEditor.js` | Smart formatting of multi-line lists and tables |
 | `src/defaultValues.js`, `src/defaultValuesEditor.js` | Default values of parameters: the line, the list, the timer |
+| `src/hints.js` | More typing hints: colons, return values, `switch` and `case`, return diagnostics |
+| `src/settingsModel.js`, `src/settingsPanel.js`, `src/settingsClient.js` | The settings panel: tabs and what may be saved, the window, the script of the page |
 | `src/autoFormat.js`, `src/autoFormatEditor.js` | Typing helpers: new line after a comma, grey suggestions, duplicate names, closers that do not fit |
 
 - Open this folder in VS Code and press `F5` to try the extension in a new window.

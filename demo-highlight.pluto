@@ -85,11 +85,16 @@ local x = "hello"
 print($getproptype(x)) --> string
 
 function name(
-    test: bool = false,
-    
+    value: bool = false,
+    value1: any = 1,
+    value2
 )
 
+switch test do
+    case
 
+    break
+end
 
 $type Point = { x: number, y: number }
 

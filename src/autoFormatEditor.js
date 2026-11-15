@@ -5,7 +5,10 @@
 "use strict";
 
 const vscode = require("vscode");
-const { planCommaNewLine, inlineSuggestionAt, findBracketMismatches } = require("./autoFormat");
+const fs = require("fs");
+const { planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, findBracketMismatches, countIfStyles, chooseIfWord, namesFor } = require("./autoFormat");
+const { suggestionsAt } = require("./hints");
+const { classChecker } = require("./defaultValuesEditor");
 const { t } = require("./i18n");
 
 function tabSizeOf(editor)
@@ -17,6 +20,53 @@ function tabSizeOf(editor)
 function indentUnit(editor)
 {
 	return editor.options.insertSpaces === false ? "\t" : " ".repeat(tabSizeOf(editor));
+}
+
+// What the other files of the workspace use after `if`: `then` or `do`. Read from the disk once, kept for a while.
+const fileCounts = new Map();
+let workspaceCounts = null;
+
+/**
+ * @param {import("./extension").LanguageService} service
+ * @returns {Promise<{ then: number, do: number }>}
+ */
+async function workspaceIfCounts(service)
+{
+	if (workspaceCounts && Date.now() - workspaceCounts.at < 5000)
+	{
+		return workspaceCounts.counts;
+	}
+	const total = { then: 0, do: 0 };
+	let seen = 0;
+	for (const file of service.index.files.values())
+	{
+		if (++seen > 400)
+		{
+			break;
+		}
+		try
+		{
+			const stat = await fs.promises.stat(file.path);
+			if (stat.size > 300 * 1024)
+			{
+				continue;
+			}
+			let cached = fileCounts.get(file.path);
+			if (!cached || cached.mtimeMs != stat.mtimeMs || cached.size != stat.size)
+			{
+				cached = { mtimeMs: stat.mtimeMs, size: stat.size, counts: countIfStyles(await fs.promises.readFile(file.path, "utf8")) };
+				fileCounts.set(file.path, cached);
+			}
+			total.then += cached.counts.then;
+			total.do += cached.counts.do;
+		}
+		catch (e)
+		{
+			// a file that is gone or can't be read does not vote
+		}
+	}
+	workspaceCounts = { at: Date.now(), counts: total };
+	return total;
 }
 
 /**
@@ -211,18 +261,132 @@ function registerAutoFormat(context, service)
 		}
 		return inlineSuggestionAt(document.getText(), document.offsetAt(position), options);
 	};
+	// The hints that wait for the cursor to rest: a colon after a parameter, a return type, a `case`. After the pause the
+	// grey text is asked for; while the list of completions is open it is not shown, and it is asked for again until
+	// that list is closed.
+	let rest = null;
+	const stopRest = function ()
+	{
+		if (rest)
+		{
+			clearTimeout(rest.timer);
+			clearInterval(rest.poll);
+			rest = null;
+		}
+	};
+	const hintOptions = function (document)
+	{
+		const config = settings(document);
+		return {
+			paramType: config.get("format.suggestParamType", true) !== false,
+			returnType: config.get("format.suggestReturnType", true) !== false,
+			returnValue: config.get("format.suggestReturnValue", true) !== false,
+			caseColon: config.get("format.suggestCaseColon", true) !== false,
+			caseBreak: config.get("format.suggestCaseBreak", true) !== false,
+			caseWords: config.get("format.suggestCaseWords", true) !== false,
+		};
+	};
+	const considerRest = function (editor)
+	{
+		stopRest();
+		const document = editor && editor.document;
+		if (!document || document.languageId != "pluto" || editor.selections.length != 1 || !editor.selection.isEmpty)
+		{
+			return;
+		}
+		const offset = document.offsetAt(editor.selection.active);
+		const found = suggestionsAt(document.getText(), offset, hintOptions(document), {}).filter(s => s.paused);
+		if (!found.length)
+		{
+			return;
+		}
+		const delay = Math.max(30, Number(settings(document).get("format.suggestParamTypeDelayMs", 600)) || 0);
+		const mine = { uri: document.uri.toString(), version: document.version, offset, armed: false, shown: false, timer: null, poll: null, tries: 0 };
+		const valid = () => rest === mine && vscode.window.activeTextEditor === editor && document.version == mine.version
+			&& editor.selection.isEmpty && document.offsetAt(editor.selection.active) == offset;
+		const trigger = () => vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+		mine.timer = setTimeout(function ()
+		{
+			if (!valid())
+			{
+				return;
+			}
+			mine.armed = true;
+			trigger();
+			// While the list of completions is open the grey text is not shown: look again until it has been shown.
+			mine.poll = setInterval(function ()
+			{
+				if (!valid() || mine.shown || ++mine.tries > 120)
+				{
+					clearInterval(mine.poll);
+					return;
+				}
+				trigger();
+			}, 500);
+		}, delay);
+		rest = mine;
+	};
+	context.subscriptions.push(
+		{ dispose: stopRest },
+		vscode.window.onDidChangeTextEditorSelection(event => considerRest(event.textEditor)),
+		vscode.window.onDidChangeActiveTextEditor(editor => editor ? considerRest(editor) : stopRest())
+	);
+
 	if (vscode.languages.registerInlineCompletionItemProvider && vscode.InlineCompletionItem)
 	{
 		context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider([{ language: "pluto" }, { language: "lua" }], {
-			provideInlineCompletionItems(document, position)
+			async provideInlineCompletionItems(document, position, inlineContext)
 			{
-				const s = suggestionAt(document, position);
-				if (!s)
+				if (!applies(document))
 				{
 					return undefined;
 				}
-				const insert = s.snippet ? new vscode.SnippetString(s.snippet) : s.insert;
-				return [new vscode.InlineCompletionItem(insert, new vscode.Range(position, position))];
+				const config = settings(document);
+				const options = {
+					parens: config.get("format.suggestParens", true) !== false,
+					keyAssign: config.get("format.suggestTableKeyAssign", true) !== false,
+					blockWords: config.get("format.suggestBlockWords", true) !== false,
+					forHints: config.get("format.suggestFor", true) !== false,
+					names: namesFor(config.get("format.nameStyle", "short"), config.get("format.names")),
+				};
+				const text = document.getText();
+				const offset = document.offsetAt(position);
+				const items = [];
+				const add = (s) => items.push(new vscode.InlineCompletionItem(s.snippet ? new vscode.SnippetString(s.snippet) : s.insert, new vscode.Range(position, position),
+					s.command ? { command: s.command, title: "" } : undefined));
+				if (options.parens || options.keyAssign || options.blockWords || options.forHints)
+				{
+					// `then` or `do` after an `if`: by the setting, or by what the file (then the workspace) uses.
+					if (options.blockWords && /^\s*(?:else)?if\b/.test(document.lineAt(position.line).text.slice(0, position.character)))
+					{
+						const setting = config.get("format.ifBlockWord", "auto");
+						let word = chooseIfWord(setting, countIfStyles(text));
+						if (setting == "auto" && countIfStyles(text).then == countIfStyles(text).do)
+						{
+							word = chooseIfWord(setting, countIfStyles(text), await workspaceIfCounts(service));
+						}
+						options.ifWord = word;
+					}
+					inlineSuggestionsAt(text, offset, options).forEach(add);
+				}
+				if (document.languageId == "pluto")
+				{
+					const found = suggestionsAt(text, offset, hintOptions(document), { isClass: classChecker(service, document, position.line), unit: "    " });
+					const open = !!(inlineContext && inlineContext.selectedCompletionInfo); // the list of completions is open
+					for (const s of found)
+					{
+						if (!s.paused)
+						{
+							add(s);
+						}
+						else if (rest && rest.armed && !open && rest.uri == document.uri.toString() && rest.version == document.version && rest.offset == offset)
+						{
+							rest.shown = true;
+							add(s);
+						}
+					}
+				}
+				return items.length ? items : undefined;
 			},
 		}));
 	}
@@ -249,4 +413,4 @@ function registerAutoFormat(context, service)
 	}));
 }
 
-module.exports = { registerAutoFormat, indentUnit };
+module.exports = { registerAutoFormat, indentUnit, workspaceIfCounts };

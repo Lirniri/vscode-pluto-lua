@@ -3104,3 +3104,555 @@ test("auto format: the settings exist", function ()
 	assert.strictEqual(props["pluto.diagnostics.duplicateParams"].default, "warning");
 	assert.deepStrictEqual(props["pluto.diagnostics.duplicateParams"].enum, ["warning", "error", "off"]);
 });
+
+test("for: the suggestions while the header is written", function ()
+{
+	const af = autoFormat;
+	const all = { parens: true, keyAssign: true, blockWords: true, forHints: true };
+	const at = (textWithCursor, options) =>
+	{
+		const offset = textWithCursor.indexOf("@");
+		return af.inlineSuggestionsAt(textWithCursor.replace("@", ""), offset, Object.assign({}, all, options || {}));
+	};
+	const inserts = (text, options) => at(text, options).map(s => s.kind + ":" + s.insert);
+	// After `for`: the kinds of loop.
+	assert.deepStrictEqual(inserts("for@"), [
+		"for-numeric: i = 1, 10", "for-ipairs: i, v in ipairs(t)", "for-pairs: k, v in pairs(t)", "for-as: t as v",
+	]);
+	assert.deepStrictEqual(inserts("for @"), ["for-numeric:i = 1, 10", "for-ipairs:i, v in ipairs(t)", "for-pairs:k, v in pairs(t)", "for-as:t as v"]);
+	// The nearest table of the file: its name, its length, and the way through it that fits (an array: ipairs first).
+	assert.deepStrictEqual(inserts("local items = { 1, 2, 3 }\nfor @"), [
+		"for-numeric:i = 1, #items", "for-ipairs:i, v in ipairs(items)", "for-pairs:k, v in pairs(items)", "for-as:items as v",
+	]);
+	assert.deepStrictEqual(inserts("local cfg = { a = 1, b = 2 }\nfor @"), [
+		"for-numeric:i = 1, #cfg", "for-pairs:k, v in pairs(cfg)", "for-ipairs:i, v in ipairs(cfg)", "for-as:cfg as v",
+	]);
+	assert.strictEqual(af.nearestTable("local a = { 1 }\nlocal b = { x = 1 }\nfor ", "local a = { 1 }\nlocal b = { x = 1 }\nfor ".length).name, "b", "the nearest one");
+	assert.strictEqual(af.nearestTable("local t = { [1] = 1 }\nfor ", 25).array, false);
+	assert.strictEqual(af.nearestTable("local t = {}\nfor ", 16).array, false, "an empty one is no array to go through");
+	assert.strictEqual(af.nearestTable("x.y = { 1 }\nfor ", 16), null, "a field is not a variable");
+	assert.strictEqual(af.nearestTable("local t = { 1 }\nfor ", 14), null, "only what is above the line");
+	// Snippets: the places to fill in.
+	assert.strictEqual(at("for@")[0].snippet, " ${1:i} = ${2:1}, ${3:10}");
+	assert.strictEqual(at("for@")[2].snippet, " ${1:k}, ${2:v} in pairs(${3:t})");
+	// After `in`: what to walk with.
+	assert.deepStrictEqual(inserts("for k, v in@"), ["for-ipairs: ipairs(t)", "for-pairs: pairs(t)", "for-next: next, t"]);
+	assert.deepStrictEqual(inserts("local cfg = { a = 1 }\nfor k, v in @"), ["for-pairs:pairs(cfg)", "for-ipairs:ipairs(cfg)", "for-next:next, cfg"]);
+	// The limit of a numeric loop, only when there is a table to measure; then its step, up or down.
+	assert.deepStrictEqual(inserts("for i = 1,@"), []);
+	assert.deepStrictEqual(inserts("local items = { 1, 2 }\nfor i = 1,@"), ["for-limit: #items"]);
+	assert.deepStrictEqual(inserts("for i = 1, 10,@"), ["for-step: 1", "for-step: 2"]);
+	assert.deepStrictEqual(inserts("for i = 10, 1,@"), ["for-step: -1", "for-step: -2"]);
+	assert.deepStrictEqual(inserts("for i = a, b,@"), ["for-step: 1", "for-step: -1"]);
+	assert.deepStrictEqual(inserts("for i = f(1, 2),@"), [], "a comma inside a call is no comma of the header");
+	assert.deepStrictEqual(inserts("for i = f(1, 2), 5,@"), ["for-step: 1", "for-step: -1"]);
+	// A finished header: ` do`, as before. Nothing for what is no header, in a comment or a string, or at the end of a longer line.
+	assert.deepStrictEqual(inserts("for i = 1, 3@"), ["do: do"]);
+	for (const text of ["for x@", "fora@", "for i = 1, 3 do@", "-- for@", "\"for@\"", "for@ i = 1", "format@", "x = for@", "for k, v in pairs(t)@ do"])
+	{
+		assert.deepStrictEqual(inserts(text), text == "for k, v in pairs(t)@ do" || text == "for@ i = 1" || text == "x = for@" ? inserts(text) : [], text);
+	}
+	assert.deepStrictEqual(inserts("for@ i = 1"), []);
+	assert.deepStrictEqual(inserts("x = for@"), []);
+	// The setting switches the loop hints off; ` do` stays with the block words.
+	assert.deepStrictEqual(inserts("for@", { forHints: false }), []);
+	assert.deepStrictEqual(inserts("for i = 1, 3@", { forHints: false }), ["do: do"]);
+});
+
+test("for: full words and the words of your own", function ()
+{
+	const af = autoFormat;
+	assert.deepStrictEqual(af.namesFor("short"), { index: "i", key: "k", value: "v", table: "t" });
+	assert.deepStrictEqual(af.namesFor("full"), { index: "index", key: "key", value: "value", table: "table_name" });
+	assert.deepStrictEqual(af.namesFor("anything"), af.namesFor("short"));
+	// Own words replace single ones; what is no name or is reserved is ignored.
+	assert.deepStrictEqual(af.namesFor("full", { value: "item", table: "list" }), { index: "index", key: "key", value: "item", table: "list" });
+	assert.deepStrictEqual(af.namesFor("short", { key: "end", value: "1x", index: "my index", table: 5 }), af.namesFor("short"));
+	assert.deepStrictEqual(af.namesFor("short", null), af.namesFor("short"));
+	const run = (text, names) => af.inlineSuggestionsAt(text, text.length, { forHints: true, names }).map(s => s.insert);
+	assert.deepStrictEqual(run("for ", af.namesFor("full")), ["index = 1, 10", "index, value in ipairs(table_name)", "key, value in pairs(table_name)", "table_name as value"]);
+	assert.deepStrictEqual(run("for k in ", af.namesFor("full")), ["ipairs(table_name)", "pairs(table_name)", "next, table_name"]);
+	assert.deepStrictEqual(run("for ", af.namesFor("short", { value: "item", table: "list" })), ["i = 1, 10", "i, item in ipairs(list)", "k, item in pairs(list)", "list as item"]);
+	// A table of the file wins over the word for the table.
+	assert.deepStrictEqual(run("local rows = { 1 }\nfor ", af.namesFor("full")), ["index = 1, #rows", "index, value in ipairs(rows)", "key, value in pairs(rows)", "rows as value"]);
+	// The settings are declared.
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	assert.strictEqual(props["pluto.format.nameStyle"].default, "short");
+	assert.deepStrictEqual(props["pluto.format.nameStyle"].enum, ["short", "full"]);
+	assert.deepStrictEqual(Object.keys(props["pluto.format.names"].properties), ["index", "key", "value", "table"]);
+	assert.strictEqual(props["pluto.format.suggestFor"].default, true);
+});
+
+test("if: then or do, by the setting or by what the code uses", function ()
+{
+	const af = autoFormat;
+	// The two spellings are counted, for `if` and `elseif`; strings, comments, calls and fields are not.
+	assert.deepStrictEqual(af.countIfStyles("if a then end\nif b do end\nif c do end\nelseif d do end"), { then: 1, do: 3 });
+	assert.deepStrictEqual(af.countIfStyles("local s = \"if x then\"\n-- if y do\nobj.if = 1"), { then: 0, do: 0 });
+	assert.deepStrictEqual(af.countIfStyles("if f(function() return 1 end) then end\nif g({ a = 1 }) do end"), { then: 1, do: 1 });
+	assert.deepStrictEqual(af.countIfStyles("if x\n   and y\nthen\nend"), { then: 1, do: 0 });
+	assert.deepStrictEqual(af.countIfStyles(""), { then: 0, do: 0 });
+	// The choice: the setting, else the file, else the workspace, else `then`.
+	assert.strictEqual(af.chooseIfWord("then", { then: 0, do: 9 }), "then");
+	assert.strictEqual(af.chooseIfWord("do", { then: 9, do: 0 }), "do");
+	assert.strictEqual(af.chooseIfWord("off", { then: 9, do: 0 }), null);
+	assert.strictEqual(af.chooseIfWord("auto", { then: 1, do: 3 }), "do");
+	assert.strictEqual(af.chooseIfWord("auto", { then: 3, do: 1 }, { then: 0, do: 9 }), "then", "the file counts more than the workspace");
+	assert.strictEqual(af.chooseIfWord("auto", { then: 2, do: 2 }, { then: 0, do: 5 }), "do", "a tie in the file: the workspace decides");
+	assert.strictEqual(af.chooseIfWord("auto", { then: 0, do: 0 }, { then: 4, do: 4 }), "then", "a tie everywhere");
+	assert.strictEqual(af.chooseIfWord("auto", { then: 0, do: 0 }), "then");
+	assert.strictEqual(af.chooseIfWord("whatever", { then: 0, do: 2 }), "do", "an unknown value is auto");
+	// The suggestion follows the chosen word; `do` is not asked for twice, and off suggests nothing.
+	const word = (text, ifWord) => af.inlineSuggestionsAt(text, text.length, { blockWords: true, ifWord }).map(s => s.kind + ":" + s.insert);
+	assert.deepStrictEqual(word("if x"), ["then: then"], "then is the default");
+	assert.deepStrictEqual(word("if x", "do"), ["do: do"]);
+	assert.deepStrictEqual(word("    elseif a and b", "do"), ["do: do"]);
+	assert.deepStrictEqual(word("if x ", "do"), ["do:do"]);
+	assert.deepStrictEqual(word("if x", null), []);
+	assert.deepStrictEqual(word("if x do", "then"), [], "a header that has its word");
+	assert.deepStrictEqual(word("if x then", "do"), []);
+	assert.deepStrictEqual(word("while x", "then"), ["do: do"], "a loop takes only do, whatever is chosen");
+	assert.deepStrictEqual(word("for i = 1, 3", null), ["do: do"]);
+	// The setting.
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const prop = pkg.contributes.configuration.properties["pluto.format.ifBlockWord"];
+	assert.strictEqual(prop.default, "auto");
+	assert.deepStrictEqual(prop.enum, ["auto", "then", "do", "off"]);
+	assert.strictEqual(prop.enumDescriptions.length, 4);
+});
+
+test("for: the values a numeric loop goes through, shown on hover", function ()
+{
+	const af = autoFormat;
+	const text = (line) => { const d = af.describeNumericFor(line); return d && af.forPreviewText(d); };
+	assert.strictEqual(text("for i = 1, 10, 2 do"), "`i` takes the values 1, 3, 5, 7, 9 (5 times, step 2).");
+	assert.strictEqual(text("for i = 1, 3"), "`i` takes the values 1, 2, 3 (3 times, step 1).");
+	assert.strictEqual(text("for i = 10, 1, -3 do"), "`i` takes the values 10, 7, 4, 1 (4 times, step -3).");
+	assert.strictEqual(text("for n = 0, 1, 0.25"), "`n` takes the values 0, 0.25, 0.5, 0.75, 1 (5 times, step 0.25).");
+	assert.strictEqual(text("for i = 1, 1 do"), "`i` takes the values 1 (1 time, step 1).");
+	assert.strictEqual(text("    for i = 1, 100 do -- many"), "`i` takes the values 1, 2, 3, 4, 5, 6, ..., 100 (100 times, step 1).");
+	// `1, 3, 5`: from 1 to 3 with the step 5 is one value.
+	assert.strictEqual(text("for i = 1, 3, 5 do"), "`i` takes the values 1 (1 time, step 5). The step 5 is larger than the distance, so the loop runs once.");
+	assert(text("for i = 5, 1 do").startsWith("The loop does not run"), text("for i = 5, 1 do"));
+	assert(text("for i = 1, 5, -1 do").startsWith("The loop does not run"));
+	assert.strictEqual(text("for i = 1, 3, 0 do"), "The step is 0: the loop raises an error.");
+	// What is no numeric loop with numbers.
+	for (const line of ["for i = 1, #t do", "for i = a, b do", "for k, v in pairs(t) do", "for t as v do", "for i = 1 do", "for i = 1, 2, 3, 4 do", "x = 1, 2", "-- for i = 1, 2"])
+	{
+		assert.strictEqual(text(line), null, line);
+	}
+	// In Russian, with the right form of "раз".
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		assert.strictEqual(text("for i = 1, 10, 2 do"), "`i` принимает значения 1, 3, 5, 7, 9 (5 раз, шаг 2).");
+		assert.strictEqual(text("for i = 1, 4"), "`i` принимает значения 1, 2, 3, 4 (4 раза, шаг 1).");
+		assert.strictEqual(text("for i = 1, 21").endsWith("(21 раз, шаг 1)."), true, text("for i = 1, 21"));
+		assert.strictEqual(text("for i = 1, 1"), "`i` принимает значения 1 (1 раз, шаг 1).");
+		assert.strictEqual(text("for i = 1, 3, 0"), "Шаг равен 0: цикл вызовет ошибку.");
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+	// On hover of the keyword `for`, switched off by the setting.
+	assert(hover("fo|r i = 1, 10, 2 do end").includes("takes the values 1, 3, 5, 7, 9 (5 times, step 2)"), hover("fo|r i = 1, 10, 2 do end"));
+	assert(hover("fo|r i = 1, 3, 5 do end").includes("the loop runs once"));
+	assert(!(hover("for i = 1, 10, 2 do end\nx = |1") || "").includes("takes the values"));
+	vscode.config["pluto.hover.forPreview"] = false;
+	try
+	{
+		assert(!hover("fo|r i = 1, 10, 2 do end").includes("takes the values"));
+	}
+	finally
+	{
+		delete vscode.config["pluto.hover.forPreview"];
+	}
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.strictEqual(pkg.contributes.configuration.properties["pluto.hover.forPreview"].default, true);
+});
+
+const settingsModel = require("../src/settingsModel");
+const settingsPanel = require("../src/settingsPanel");
+
+function readManifest()
+{
+	return {
+		pkg: JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")),
+		nls: JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8")),
+		nlsRu: JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8")),
+	};
+}
+
+test("settings panel: every setting is on exactly one tab with the right control", function ()
+{
+	const { pkg, nls } = readManifest();
+	const props = pkg.contributes.configuration.properties;
+	const titles = { general: "General" };
+	const model = settingsModel.buildModel(pkg, nls, (key) => props[key].default, titles);
+	// All the tabs of the model are known ones, in order, and each setting is shown once (the deprecated ones are not).
+	const known = settingsModel.TABS.map(t => t.id);
+	assert.deepStrictEqual(model.tabs.map(t => t.id), known.filter(id => model.tabs.some(t => t.id == id)));
+	assert.strictEqual(model.tabs[0].title, "General");
+	assert.strictEqual(model.tabs[1].title, "index", "a tab without a title shows its id");
+	const shown = model.tabs.flatMap(t => t.items.map(i => i.key));
+	assert.strictEqual(new Set(shown).size, shown.length, "no setting twice");
+	const deprecated = Object.keys(props).filter(k => props[k].deprecationMessage || props[k].markdownDeprecationMessage);
+	assert.deepStrictEqual(Object.keys(props).filter(k => !shown.includes(k)).sort(), deprecated.sort(), "everything but the deprecated ones is on a tab");
+	// The tab of a setting, and the control it gets.
+	const where = (key) => model.tabs.find(t => t.items.some(i => i.key == key)).id;
+	const item = (key) => model.tabs.flatMap(t => t.items).find(i => i.key == key);
+	assert.strictEqual(where("pluto.language"), "general");
+	assert.strictEqual(where("pluto.workspace.ignoreFiles"), "index");
+	assert.strictEqual(where("pluto.lua.compilerPath"), "lua");
+	assert.strictEqual(where("pluto.completion.defaultValues"), "completion");
+	assert.strictEqual(where("pluto.hover.forPreview"), "hover");
+	assert.strictEqual(where("pluto.outline.calls"), "outline");
+	assert.strictEqual(where("pluto.diagnostics.duplicateParams"), "diagnostics");
+	assert.strictEqual(where("pluto.highlight.colors"), "highlight");
+	assert.strictEqual(where("pluto.format.ifBlockWord"), "typing");
+	assert.strictEqual(where("pluto.json.files"), "json");
+	assert.strictEqual(item("pluto.autoCloseBlocks").kind, "boolean");
+	assert.strictEqual(item("pluto.format.ifBlockWord").kind, "enum");
+	assert.strictEqual(item("pluto.index.maxFiles").kind, "number");
+	assert.strictEqual(item("pluto.workspace.exclude").kind, "list");
+	assert.strictEqual(item("pluto.lua.compilerPath").kind, "text");
+	assert.strictEqual(item("pluto.highlight.paramNoDefaultColor").kind, "color");
+	assert.strictEqual(item("pluto.highlight.nullableTypeColor").kind, "color");
+	assert.strictEqual(item("pluto.highlight.colors").kind, "colors");
+	assert.strictEqual(item("pluto.highlight.tableBracketColors").kind, "bracketColors");
+	assert.strictEqual(item("pluto.format.names").kind, "map");
+	assert.deepStrictEqual(item("pluto.format.names").fields, ["index", "key", "value", "table"]);
+	assert.deepStrictEqual(item("pluto.format.ifBlockWord").options.map(o => o.value), ["auto", "then", "do", "off"]);
+	assert.strictEqual(item("pluto.index.maxFiles").min, 1);
+	assert.strictEqual(item("pluto.highlight.colors").categories.length, 11);
+	assert.strictEqual(item("pluto.highlight.colors").categories[0].name, "functionName");
+	// The texts are the ones of the nls file; no `%key%` is left over.
+	assert.strictEqual(item("pluto.json.severity").description, nls["pluto.json.severity.markdownDescription"]);
+	assert(model.tabs.flatMap(t => t.items).every(i => !/^%.*%$/.test(i.description) && i.description.length > 0), "every setting has its text");
+	assert(model.tabs.flatMap(t => t.items).filter(i => i.options).every(i => i.options.every(o => o.label && !/^%/.test(o.label))));
+	// The value of a setting is the one in force.
+	const changed = settingsModel.buildModel(pkg, nls, (key) => key == "pluto.format.suggestFor" ? false : props[key].default, {});
+	assert.strictEqual(changed.tabs.flatMap(t => t.items).find(i => i.key == "pluto.format.suggestFor").value, false);
+	assert.strictEqual(settingsModel.tabOf("pluto.something.new"), "general", "a setting no tab claims lands on the first tab");
+});
+
+test("settings panel: only allowed values are saved", function ()
+{
+	const { pkg } = readManifest();
+	const check = (key, value) => settingsModel.validateChange(pkg, key, value);
+	const ok = (key, value) => { const r = check(key, value); assert(r.ok, key + " " + JSON.stringify(value) + " " + r.error); return r; };
+	const bad = (key, value) => { const r = check(key, value); assert(!r.ok, key + " " + JSON.stringify(value) + " should be refused"); return r.error; };
+	// Which settings may be written: ours, and only the ones that exist.
+	bad("editor.fontSize", 20);
+	bad("pluto.nothing", true);
+	bad("__proto__", true);
+	bad("constructor", true);
+	// Switches, choices, numbers, texts.
+	assert.strictEqual(ok("pluto.autoCloseBlocks", false).isDefault, false);
+	assert.strictEqual(ok("pluto.autoCloseBlocks", true).isDefault, true, "the default is not written to settings.json");
+	bad("pluto.autoCloseBlocks", "yes");
+	assert.strictEqual(ok("pluto.format.ifBlockWord", "do").value, "do");
+	bad("pluto.format.ifBlockWord", "later");
+	assert.strictEqual(ok("pluto.index.maxFiles", "250").value, 250, "a number arrives as text from the field");
+	assert.strictEqual(ok("pluto.index.maxFiles", 12.7).value, 13, "an integer setting is rounded");
+	bad("pluto.index.maxFiles", 0);
+	bad("pluto.index.maxFiles", "many");
+	bad("pluto.format.newLineAfterCommaDelayMs", 99999);
+	assert.strictEqual(ok("pluto.lua.compilerPath", "C:/lua/luac.exe").value, "C:/lua/luac.exe");
+	bad("pluto.lua.compilerPath", 5);
+	// Colors: a hex color, an empty one goes back to the default.
+	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#ff8800").value, "#ff8800");
+	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#F80").value, "#F80");
+	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#ff880080").value, "#ff880080");
+	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "").isDefault, true);
+	bad("pluto.highlight.paramNoDefaultColor", "orange");
+	bad("pluto.highlight.paramNoDefaultColor", "#12");
+	// Lists are trimmed, empty lines go.
+	assert.deepStrictEqual(ok("pluto.workspace.exclude", [" **/vendor/** ", "", "  "]).value, ["**/vendor/**"]);
+	bad("pluto.workspace.exclude", "**/vendor/**");
+	bad("pluto.workspace.exclude", [1]);
+	// The colors of the highlighting: every part is checked, an empty one is dropped, a transparent one is refused.
+	const colors = ok("pluto.highlight.colors", { functionName: { color: "#ff8800", lightColor: "#007a62", fontStyle: "bold", darkColor: "" }, type: {}, keyword: "#c586c0 bold" });
+	assert.deepStrictEqual(colors.value, { functionName: { color: "#ff8800", lightColor: "#007a62", fontStyle: "bold" }, keyword: "#c586c0 bold" });
+	assert.strictEqual(ok("pluto.highlight.colors", {}).isDefault, true);
+	bad("pluto.highlight.colors", { functionName: { color: "#0000" } });
+	bad("pluto.highlight.colors", { functionName: { color: "blue" } });
+	bad("pluto.highlight.colors", { functionName: { fontStyle: "bolt" } });
+	bad("pluto.highlight.colors", { notACategory: { color: "#ff8800" } });
+	bad("pluto.highlight.colors", []);
+	bad("pluto.highlight.colors", "#ff8800");
+	assert.deepStrictEqual(ok("pluto.highlight.tableBracketColors", [{ color: "#e6b450" }, {}, "#59c2ff"]).value, [{ color: "#e6b450" }, "#59c2ff"]);
+	bad("pluto.highlight.tableBracketColors", [{ color: "#0000" }]);
+	bad("pluto.highlight.tableBracketColors", "#ff8800");
+	// The words of your own.
+	assert.deepStrictEqual(ok("pluto.format.names", { value: "item", key: "", table: " list " }).value, { value: "item", table: "list" });
+	bad("pluto.format.names", { value: "my item" });
+	bad("pluto.format.names", { other: "x" });
+	assert.strictEqual(ok("pluto.format.names", {}).isDefault, true);
+	// The answers are in the language in use.
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		assert.strictEqual(bad("pluto.format.newLineAfterCommaDelayMs", 99999), "ожидается число от 0 до 10000");
+		assert.strictEqual(bad("pluto.format.ifBlockWord", "later"), "это не один из вариантов");
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+	assert.strictEqual(bad("pluto.format.newLineAfterCommaDelayMs", 99999), "a number from 0 to 10000 is expected");
+});
+
+test("settings panel: the page", function ()
+{
+	const { pkg, nls } = readManifest();
+	const props = pkg.contributes.configuration.properties;
+	const model = settingsModel.buildModel(pkg, nls, (key) => props[key].default, settingsPanel.tabTitles());
+	// A description that tries to be HTML must not reach the page as HTML: the data is base64 in a data block.
+	model.tabs[0].items[0].description = "<script>alert(1)</script></script><img src=x onerror=alert(2)>";
+	const html = settingsPanel.renderHtml(model, settingsPanel.panelStrings(), "NONCE42", "vscode-webview://x");
+	assert(html.includes("script-src 'nonce-NONCE42'") && html.includes("style-src 'nonce-NONCE42'") && html.includes("default-src 'none'"), "a strict content security policy");
+	assert(!html.includes("alert(1)") && !html.includes("onerror"), "nothing of the data is in the page as text");
+	assert(!/'unsafe-/.test(html), "no unsafe sources");
+	assert.strictEqual((html.match(/<script/g) || []).length, 2, "the data block and the script");
+	assert(html.split("<script").slice(1).every(part => part.startsWith(' nonce="NONCE42"') || part.startsWith(' type="application/json"')), "every script has the nonce or is data");
+	const b64 = /<script type="application\/json" id="data">([^<]+)<\/script>/.exec(html)[1];
+	assert(/^[A-Za-z0-9+/=]+$/.test(b64.trim()));
+	const data = JSON.parse(Buffer.from(b64.trim(), "base64").toString("utf8"));
+	assert.strictEqual(data.model.tabs[0].items[0].description, "<script>alert(1)</script></script><img src=x onerror=alert(2)>", "it arrives unchanged, for textContent");
+	assert.strictEqual(data.strings.title, "Pluto settings");
+	// Non-latin texts survive the trip.
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		const ru = settingsPanel.renderHtml(model, settingsPanel.panelStrings(), "N", "x");
+		const back = JSON.parse(Buffer.from(/id="data">([^<]+)</.exec(ru)[1].trim(), "base64").toString("utf8"));
+		assert.strictEqual(back.strings.title, "Настройки Pluto");
+		assert(ru.includes('lang="ru"'));
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+	// The script of the page is valid, and builds the page with text nodes only.
+	const source = fs.readFileSync(path.join(__dirname, "..", "src", "settingsClient.js"), "utf8");
+	assert.doesNotThrow(() => new (require("vm").Script)(source));
+	assert(!/\binnerHTML\b|\bouterHTML\b|insertAdjacentHTML|document\.write|\beval\(/.test(source), "no way to put text into the page as HTML");
+	assert(!source.includes("</script"), "it can sit in a script element");
+	// The command is declared and has a title in both languages.
+	const { nlsRu } = readManifest();
+	assert(pkg.contributes.commands.some(c => c.command == "pluto-syntax-highlighting.openSettings"));
+	assert(pkg.activationEvents.includes("onCommand:pluto-syntax-highlighting.openSettings"));
+	assert.strictEqual(nls["command.openSettings.title"], "Pluto: Settings");
+	assert.strictEqual(nlsRu["command.openSettings.title"], "Pluto: Настройки");
+	// The tabs have titles in both languages.
+	for (const tab of settingsModel.TABS)
+	{
+		assert(settingsPanel.tabTitles()[tab.id] && settingsPanel.tabTitles()[tab.id] != "settings.tab." + tab.id, tab.id);
+	}
+});
+
+const hints = require("../src/hints");
+
+/** A text with `@` for the cursor → [text, offset]. */
+function cursorIn(textWithCursor)
+{
+	const offset = textWithCursor.indexOf("@");
+	assert(offset != -1, "missing cursor marker");
+	return [textWithCursor.replace("@", ""), offset];
+}
+
+test("hints: a parameter without a type, with the colon suggested", function ()
+{
+	const name = (s) => { const [t, o] = cursorIn(s); const r = hints.untypedParamAt(t, o); return r && r.name; };
+	assert.strictEqual(name("function f(a, value2@)"), "value2");
+	assert.strictEqual(name("function f(value2@"), "value2", "an unfinished list");
+	assert.strictEqual(name("function f(\n    value: bool = false,\n    value1: any = 1,\n    value2@\n)"), "value2", "typed above it");
+	assert.strictEqual(name("function f(a@, b)"), "a");
+	assert.strictEqual(name("function f(a, @b)"), "b", "anywhere on the name");
+	assert.strictEqual(name("function f(valu@e2)"), "value2");
+	assert.strictEqual(name("local f = function(x@)"), "x");
+	assert.strictEqual(name("function obj:method(x@)"), "x");
+	assert.strictEqual(name("function f(a, ...rest@)"), "rest");
+	// Not: typed, with a default value, `self`, a lambda, a call, reserved words, a variable.
+	for (const text of ["function f(a: int@)", "function f(a = 1@)", "function f(self@)", "function f(...@)", "foo(a@)", "function f(end@)", "local x@", "function f(a, @)", "function f(a@: int)"])
+	{
+		assert.strictEqual(name(text), null, text);
+	}
+	// The suggestion: after the name, in front of `,` or `)`, with the list of types opened by Tab.
+	const all = { paramType: true, returnType: true, returnValue: true, caseColon: true, caseBreak: true, caseWords: true };
+	const sug = (s, options) => { const [t, o] = cursorIn(s); return hints.suggestionsAt(t, o, options || all, { unit: "    " }); };
+	let found = sug("function f(a, value2@)");
+	assert.deepStrictEqual(found.map(s => [s.kind, s.insert, s.paused, s.command]), [["param-colon", ": ", true, "editor.action.triggerSuggest"]]);
+	assert.deepStrictEqual(sug("function f(a, value2@, b)").map(s => s.kind), ["param-colon"]);
+	assert.deepStrictEqual(sug("function f(a, value2 @)").map(s => s.kind), ["param-colon"], "behind a space");
+	assert.deepStrictEqual(sug("function f(a, val@ue2)"), [], "not in the middle of the name");
+	assert.deepStrictEqual(sug("function f(a: int@)"), []);
+	assert.deepStrictEqual(sug("function f(a, value2@)", Object.assign({}, all, { paramType: false })), []);
+	assert.deepStrictEqual(sug("-- function f(a, value2@)"), [], "in a comment");
+});
+
+test("hints: a return type after the parameters, and the values of a return", function ()
+{
+	const all = { paramType: true, returnType: true, returnValue: true, caseColon: true, caseBreak: true, caseWords: true };
+	const kinds = (s, options, extra) => { const t = s.replace("@", ""); return hints.suggestionsAt(t, s.indexOf("@"), options || all, extra || {}).map(x => x.kind + ":" + x.insert); };
+	// The colon behind the `)` of a function that has no return type.
+	assert.deepStrictEqual(kinds("function f(a)@"), ["return-colon:: "]);
+	assert.deepStrictEqual(kinds("function f(a) @"), ["return-colon:: "]);
+	assert.deepStrictEqual(kinds("function f()@\nend"), ["return-colon:: "]);
+	assert.deepStrictEqual(kinds("function obj:m(a, b)@"), ["return-colon:: "]);
+	assert.deepStrictEqual(kinds("local f = function(x)@"), ["return-colon:: "]);
+	assert.deepStrictEqual(kinds("function f(a)@ return a end"), ["return-colon:: "]);
+	for (const text of ["function f(a): int@", "function f(a)@: int", "foo(a)@", "local x = (1)@", "$declare function f(a)@", "x: function(a)@", "if (a)@"])
+	{
+		assert.deepStrictEqual(kinds(text), [], text);
+	}
+	assert.deepStrictEqual(kinds("function f(a)@", Object.assign({}, all, { returnType: false })), []);
+	// `return `: the values of the type of the function around, nullable ones with nil, and none for void or no type.
+	const values = (s, isClass) => { const t = s.replace("@", ""); return hints.returnValuesAt(t, s.indexOf("@"), isClass); };
+	assert.deepStrictEqual(values("function f(): bool\n    return @\nend"), ["false", "true"]);
+	assert.deepStrictEqual(values("function f(): int?\n    return @\nend"), ["0", "1", "-1", "nil"]);
+	assert.deepStrictEqual(values("function f(): ?string\n    return @\nend"), ["\"\"", "nil"]);
+	assert.deepStrictEqual(values("function f(): bool|nil\n    return @\nend"), ["false", "true", "nil"]);
+	assert.deepStrictEqual(values("function f(): string\n    if x then\n        return @\n    end\nend"), ["\"\""], "inside of a block");
+	assert.deepStrictEqual(values("function f(): Vehicle\n    return @\nend", n => n == "Vehicle"), ["new Vehicle()"]);
+	assert.deepStrictEqual(values("class A\n    function m(a: int): table\n        return @\n    end\nend"), ["{}"]);
+	assert.deepStrictEqual(values("function f(): bool\n    local g = function(): int\n        return @\n    end\nend"), ["0", "1", "-1"], "the nearest function");
+	for (const text of ["function f(): void\n    return @\nend", "function f()\n    return @\nend", "return @", "function f(): bool\n    return @true\nend", "function f(): Unknown\n    return @\nend"])
+	{
+		assert.deepStrictEqual(values(text), [], text);
+	}
+	assert.deepStrictEqual(kinds("function f(): bool\n    return @\nend"), ["return-value:false", "return-value:true"]);
+	assert.deepStrictEqual(kinds("function f(): bool\n    return@\nend"), [], "only after the space");
+	assert.deepStrictEqual(kinds("function f(): bool\n    return @\nend", Object.assign({}, all, { returnValue: false })), []);
+});
+
+test("hints: a function that does not return what it says", function ()
+{
+	const problems = (s) => hints.findReturnProblems(s).map(p => p.kind + ":" + p.type + "@" + p.line + ":" + p.col);
+	assert.deepStrictEqual(problems("function f(): int\n    local x = 1\nend"), ["missing:int@0:14"]);
+	assert.deepStrictEqual(problems("function f(a: int): string|number\n    local x = 1\nend"), ["missing:string|number@0:20"]);
+	assert.deepStrictEqual(problems("class A\n    function m(): int\n        local z = 1\n    end\nend"), ["missing:int@1:18"]);
+	assert.deepStrictEqual(problems("function f(): { int }\n    local z = 1\nend"), ["missing:{ int }@0:14"]);
+	assert.deepStrictEqual(problems("function f(): int\n    local g = function() return 5 end\nend"), ["missing:int@0:14"], "the return of an inner function is not its own");
+	assert.deepStrictEqual(problems("function f(): void\n    return 1\nend"), ["void-value:void@1:4"]);
+	assert.deepStrictEqual(problems("function f(): void\n    return\nend"), []);
+	assert.deepStrictEqual(problems("function f(): void\n    if x then return end\nend"), []);
+	// Fine: it returns, it raises an error or jumps, its type may be nothing, or it has no body.
+	for (const text of [
+		"function f(): int\n    return 1\nend", "function f(): int\n    if x then return 1 end\n    return 2\nend", "function f(): int\n    error(\"x\")\nend",
+		"function f(): int?\nlocal x\nend", "function f(): ?int\n    local x\nend", "function f(): int|nil\n    local x\nend", "function f(): any\n    local x\nend",
+		"function f(): int\nend", "function f()\n    local x\nend", "$declare function f(): int\nfunction g(): bool\n    return true\nend", "local f: function(): int = nil",
+	])
+	{
+		assert.deepStrictEqual(problems(text), [], text);
+	}
+	assert.deepStrictEqual(problems("function f(): int\n    while true do\n        x = 1\n    end\nend"), ["missing:int@0:14"], "a loop is not a return");
+	assert.deepStrictEqual(problems("function f(): int\n    for i = 1, 3 do\n        return i\n    end\nend"), []);
+});
+
+test("hints: switch and case", function ()
+{
+	const all = { paramType: true, returnType: true, returnValue: true, caseColon: true, caseBreak: true, caseWords: true };
+	const kinds = (s, options) => { const t = s.replace("@", ""); return hints.suggestionsAt(t, s.indexOf("@"), options || all, { unit: "    " }).map(x => x.kind + ":" + x.insert + (x.paused ? "~" : "")); };
+	// The colon after the values, shown after a pause; not when it is there, or where the line goes on.
+	assert.deepStrictEqual(kinds("switch x do\n    case 1@\nend"), ["case-colon::~"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case 2, 3@\nend"), ["case-colon::~"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case \"a\"@\nend"), ["case-colon::~"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case 1 @\nend"), ["case-colon::~"]);
+	for (const text of ["switch x do\n    case 1:@\nend", "switch x do\n    case @\nend", "case 1@", "if x then\n    case 1@\nend", "switch x do\n    case f(@\nend", "switch x do\n    case 1,@\nend", "switch x do\n    case 1@ -- c\nend"])
+	{
+		assert.deepStrictEqual(kinds(text).filter(k => k.startsWith("case-colon")), [], text);
+	}
+	// The yellow line: under `case`, wherever the cursor is on its line.
+	const noColon = (s) => { const t = s.replace("@", ""); const r = hints.caseNoColonAt(t, s.indexOf("@")); return r && [r.line, r.col, r.endCol].join(":"); };
+	assert.strictEqual(noColon("switch x do\n    ca@se 1\nend"), "1:4:8");
+	assert.strictEqual(noColon("switch x do\n    case 1@\nend"), "1:4:8");
+	assert.strictEqual(noColon("switch x do\n    case 1:@\nend"), null);
+	assert.strictEqual(noColon("x = 1@"), null);
+	// `break`: on an empty line inside of the body of a `case` that nothing ends, before another case, `default` or `end`.
+	const brk = (s) => kinds(s).filter(k => k.startsWith("case-break"));
+	assert.deepStrictEqual(brk("switch x do\n    case 1:\n        print(1)\n        @\n    case 2:\n        break\nend"), ["case-break:break"]);
+	assert.deepStrictEqual(brk("switch x do\n    case 1:\n        @\nend"), ["case-break:break"]);
+	assert.deepStrictEqual(brk("switch x do\n    case 1:\n        for i = 1, 3 do\n            print(i)\n        end\n        @\n    case 2:\nend"), ["case-break:break"], "a loop in the body");
+	assert.deepStrictEqual(brk("switch x do\n    case 1:\n        if y then\n            print()\n        end\n        @\n    default:\nend"), ["case-break:break"]);
+	for (const text of [
+		"switch x do\n    case 1:\n        print(1)\n        break\n        @\n    case 2:\nend",        // ended already
+		"switch x do\n    case 1:\n        return\n        @\n    case 2:\nend", "switch x do\n    case 1:\n        goto done\n        @\nend", "switch x do\n    case 1:\n        error(\"x\")\n        @\nend",
+		"switch x do\n    default:\n        @\nend",                                                       // default needs none
+		"switch x do\n    case 1:\n    @\n    case 2:\nend",                                               // not in the body
+		"switch x do\n    case 1:\n        print(1)\n        @\n        print(2)\nend",                  // something follows
+		"switch x do\n    case 1:\n        for i = 1, 3 do\n            break\n        end\n        @\n    case 2:\nend", // a break in the loop is a break of the case too: left alone
+		"if x then\n    @\nend",
+	])
+	{
+		assert.deepStrictEqual(brk(text), [], text);
+	}
+	// `case ` and `default:` at the level of the cases.
+	const words = (s) => kinds(s).filter(k => k.startsWith("case-word"));
+	assert.deepStrictEqual(words("switch x do\n    @\nend"), ["case-word:case ", "case-word:default:"]);
+	assert.deepStrictEqual(words("switch x do\n    case 1:\n        break\n    @\nend"), ["case-word:case ", "case-word:default:"]);
+	assert.deepStrictEqual(words("switch x do\n    case 1:\n        break\n    default:\n        print(1)\n    @\nend"), ["case-word:case "], "one default");
+	assert.deepStrictEqual(words("switch x do\n    case 1:\n        for i = 1, 2 do\n        end\n    @\nend"), ["case-word:case ", "case-word:default:"]);
+	for (const text of ["switch x do\n    case 1:\n        break\n        @\nend", "switch x do\n@\nend", "if x then\n    @\nend", "switch x do\n    case 1:\n        print(@)\nend"])
+	{
+		assert.deepStrictEqual(words(text), [], text);
+	}
+	assert.deepStrictEqual(kinds("switch x do\n    case 1:\n        break\n    @\nend", Object.assign({}, all, { caseWords: false })), []);
+	assert.deepStrictEqual(brk("switch x do\n    case 1:\n        @\nend").length, 1);
+	assert.deepStrictEqual(kinds("switch x do\n    case 1:\n        @\nend", Object.assign({}, all, { caseBreak: false })), []);
+	// Cases that run into the next one: an empty body is a group of cases, and a `break` in a nested block counts.
+	const falls = (s) => hints.findCaseFallthroughs(s).map(p => p.line + ":" + p.col);
+	assert.deepStrictEqual(falls("switch x do\n    case 1:\n        print(1)\n    case 2:\n        print(2)\n        break\nend"), ["1:4"]);
+	assert.deepStrictEqual(falls("switch x do\n    case 1:\n        print(1)\n    default:\n        print()\nend"), ["1:4"]);
+	assert.deepStrictEqual(falls("switch a do\n    case 1:\n        switch b do\n            case 2:\n                print()\n            case 3:\n                break\n        end\n        break\nend"), ["3:12"], "the inner switch is its own");
+	for (const text of [
+		"switch x do\n    case 1:\n        print(1)\n        break\n    case 2:\n        print(2)\nend", "switch x do\n    case 1:\n    case 2:\n        break\nend",
+		"switch x do\n    case 1:\n        if y then break end\n    case 2:\n        return\n    default:\n        print()\nend", "switch x do\n    case 1:\n        error(\"x\")\n    case 2:\n        break\nend",
+		"switch x do\n    case 1:\n        for i = 1, 3 do\n            print(i)\n        end\n        break\n    case 2:\n        break\nend", "if x then\n    print(1)\nend",
+	])
+	{
+		assert.deepStrictEqual(falls(text), [], text);
+	}
+});
+
+test("hints: the diagnostics and the settings", function ()
+{
+	const run = (text, options) => lintSource(text, { path: "/ws/a.pluto", requires: [] }, { index: { files: new Map(), resolveModule: () => null } }, Object.assign({ requires: false, calls: false }, options));
+	const returns = run("function a(): int\n    local x = 1\nend\nfunction b(): void\n    return 1\nend", { returnTypes: "warning" });
+	assert.deepStrictEqual(returns.map(p => [p.line, p.severity, p.code]), [[0, "warning", "return-missing"], [4, "warning", "return-void-value"]]);
+	assert(returns[0].message.includes("returns `int`") && returns[0].message.includes("`return`"), returns[0].message);
+	assert(returns[1].message.includes("`void`"), returns[1].message);
+	assert.strictEqual(run("function a(): int\n    local x = 1\nend", { returnTypes: "error" })[0].severity, "error");
+	assert.deepStrictEqual(run("function a(): int\n    local x = 1\nend", { returnTypes: "off" }), []);
+	assert.deepStrictEqual(run("function a(): int\n    local x = 1\nend", {}), [], "nothing without the option");
+	const fall = run("switch x do\n    case 1:\n        print(1)\n    case 2:\n        break\nend", { caseFallthrough: "hint" });
+	assert.deepStrictEqual(fall.map(p => [p.line, p.severity, p.code]), [[1, "hint", "case-fallthrough"]]);
+	assert.deepStrictEqual(run("switch x do\n    case 1:\n        print(1)\n    case 2:\n        break\nend", { caseFallthrough: "off" }), []);
+	// Russian texts.
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		assert(run("function a(): int\n    local x = 1\nend", { returnTypes: "warning" })[0].message.includes("возвращает `int`"));
+		assert(run("switch x do\n    case 1:\n        print(1)\n    case 2:\n        break\nend", { caseFallthrough: "hint" })[0].message.includes("переходит в следующий"));
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+	// The settings are declared, with texts in both languages (the test above that checks them all is the other half).
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	for (const key of ["suggestParamType", "suggestReturnType", "suggestReturnValue", "suggestCaseColon", "suggestCaseBreak", "suggestCaseWords"])
+	{
+		assert.strictEqual(props["pluto.format." + key].default, true, key);
+	}
+	assert.strictEqual(props["pluto.format.suggestParamTypeDelayMs"].default, 600);
+	assert.strictEqual(props["pluto.highlight.paramNoType"].default, true);
+	assert.strictEqual(props["pluto.highlight.caseNoColon"].default, true);
+	assert.deepStrictEqual(props["pluto.diagnostics.returnTypes"].enum, ["warning", "error", "off"]);
+	assert.deepStrictEqual(props["pluto.diagnostics.caseFallthrough"].enum, ["off", "hint"]);
+	assert.strictEqual(props["pluto.diagnostics.caseFallthrough"].default, "off");
+});

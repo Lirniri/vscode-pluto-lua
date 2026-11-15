@@ -6,6 +6,7 @@
 
 const vscode = require("vscode");
 const { paramAt, isCompleteType, defaultValuesFor } = require("./defaultValues");
+const { untypedParamAt, caseNoColonAt } = require("./hints");
 const { t } = require("./i18n");
 
 /**
@@ -51,6 +52,8 @@ class DefaultValueHint
 			highlight: config.get("highlight.paramNoDefault", true) !== false,
 			color: color("highlight.paramNoDefaultColor", "#E5C07B"),
 			lightColor: color("highlight.paramNoDefaultLightColor", "#BF8803"),
+			paramNoType: config.get("highlight.paramNoType", true) !== false,
+			caseNoColon: config.get("highlight.caseNoColon", true) !== false,
 			values: config.get("completion.defaultValues", true) !== false,
 			delayMs: Math.max(0, Number(config.get("completion.defaultValuesDelayMs", 800)) || 0),
 		};
@@ -64,9 +67,19 @@ class DefaultValueHint
 			this.type.dispose();
 			this.type = null;
 		}
+		if (this.missingType)
+		{
+			this.missingType.dispose();
+			this.missingType = null;
+		}
 		const settings = this._settings();
 		const line = (color) => ({ textDecoration: "underline wavy " + color });
 		this.type = vscode.window.createTextEditorDecorationType(Object.assign(line(settings.color), {
+			dark: line(settings.color),
+			light: line(settings.lightColor),
+		}));
+		// The same line for what is missing: the type of a parameter, the colon of a `case`.
+		this.missingType = vscode.window.createTextEditorDecorationType(Object.assign(line(settings.color), {
 			dark: line(settings.color),
 			light: line(settings.lightColor),
 		}));
@@ -107,6 +120,41 @@ class DefaultValueHint
 		editor.setDecorations(this.type, ranges);
 	}
 
+	/** Shows the ranges of the hints for what is missing (a seam for tests). */
+	_decorateMissing(editor, ranges)
+	{
+		editor.setDecorations(this.missingType, ranges);
+	}
+
+	/** The yellow line under a parameter that has no type, and under a `case` that has no colon, while the cursor is on it. */
+	updateMissing(editor)
+	{
+		if (!this.missingType)
+		{
+			return;
+		}
+		const settings = this._settings();
+		const ranges = [];
+		const document = editor.document;
+		if (document.languageId == "pluto" && editor.selections.length == 1 && editor.selection.isEmpty && (settings.paramNoType || settings.caseNoColon))
+		{
+			const text = document.getText();
+			const offset = document.offsetAt(editor.selection.active);
+			const md = (message) => { const m = new vscode.MarkdownString(); m.appendMarkdown(message); return m; };
+			const param = settings.paramNoType ? untypedParamAt(text, offset) : null;
+			if (param)
+			{
+				ranges.push({ range: new vscode.Range(document.positionAt(param.nameStart), document.positionAt(param.nameEnd)), hoverMessage: md(t("missing.paramType", param.name)) });
+			}
+			const missingCase = settings.caseNoColon ? caseNoColonAt(text, offset) : null;
+			if (missingCase)
+			{
+				ranges.push({ range: new vscode.Range(missingCase.line, missingCase.col, missingCase.line, missingCase.endCol), hoverMessage: md(t("missing.caseColon")) });
+			}
+		}
+		this._decorateMissing(editor, ranges);
+	}
+
 	/** Opens the list of suggestions (a seam for tests). */
 	_triggerSuggest()
 	{
@@ -124,6 +172,7 @@ class DefaultValueHint
 		{
 			return;
 		}
+		this.updateMissing(editor);
 		const settings = this._settings();
 		const found = settings.highlight || (settings.values && settings.delayMs > 0) ? this.infoAt(editor) : null;
 		if (!found || !settings.highlight)
@@ -171,6 +220,10 @@ class DefaultValueHint
 		if (this.type)
 		{
 			this.type.dispose();
+		}
+		if (this.missingType)
+		{
+			this.missingType.dispose();
 		}
 	}
 }

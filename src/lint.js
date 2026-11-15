@@ -9,6 +9,7 @@ const builtins = require("./builtins");
 const { normalizePath } = require("./workspaceIndex");
 const { t } = require("./i18n");
 const { findDuplicates, findBracketMismatches } = require("./autoFormat");
+const { findReturnProblems, findCaseFallthroughs } = require("./hints");
 
 /**
  * @typedef {{ line: number, col: number, endLine: number, endCol: number, severity: "error"|"warning", message: string, code: string }} LintProblem
@@ -61,6 +62,24 @@ function lintSource(text, file, analyzer, options)
 				line: d.line, col: d.col, endLine: d.line, endCol: d.endCol, severity: options.duplicates, code: d.kind == "param" ? "duplicate-param" : "duplicate-key",
 				message: t(d.kind == "param" ? "dup.param" : "dup.key", d.name, d.firstLine + 1),
 			});
+		}
+	}
+	// A function that does not return what its header says, a case that runs into the next one.
+	if (options.returnTypes == "warning" || options.returnTypes == "error")
+	{
+		for (const p of findReturnProblems(text))
+		{
+			out.push({
+				line: p.line, col: p.col, endLine: p.line, endCol: p.endCol, severity: options.returnTypes, code: p.kind == "missing" ? "return-missing" : "return-void-value",
+				message: t(p.kind == "missing" ? "ret.missing" : "ret.voidValue", p.type),
+			});
+		}
+	}
+	if (options.caseFallthrough == "hint")
+	{
+		for (const f of findCaseFallthroughs(text))
+		{
+			out.push({ line: f.line, col: f.col, endLine: f.line, endCol: f.endCol, severity: "hint", code: "case-fallthrough", message: t("case.fallthrough") });
 		}
 	}
 	// A closer that does not fit the last opened bracket: `{ ]`.
