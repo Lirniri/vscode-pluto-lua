@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# Pluto & Lua Mini-IDE (Pluto & Lua Language Support)
+# Pluto & Lua Mini-IDE
 
 *A mini-IDE for [Pluto](https://plutolang.github.io/) and Lua inside Visual Studio Code: syntax highlighting, completion, hover, typing helpers, diagnostics, a Lua syntax check and a settings panel.*
 
@@ -16,7 +16,7 @@
 1. Download `pluto-lua-language-support-<version>.vsix` from the [releases](https://github.com/Lirniri/vscode-pluto-lua/releases) of this project.
 2. Install it: `code --install-extension pluto-lua-language-support-<version>.vsix`, or in VS Code open the Extensions view, click `...` and choose **Install from VSIX...**. If an older copy with a different publisher is installed, uninstall it first.
 3. Open a `.pluto` (or `.lua`) file. Highlighting and the language features work at once; open the **folder** of your project so that the index sees all its files.
-4. Press `Ctrl+Shift+P` and run **Pluto: Settings** for the settings panel (a tab for each group, color pickers).
+4. Press `Ctrl+Shift+P` and run **Plua: Settings** for the settings panel (a tab for each group, color pickers).
 5. Open [demo-highlight.pluto](demo-highlight.pluto): every kind of token of the grammar in one file, to tune the colors on.
 6. Optional: the Pluto compiler (`plutoc`) for live compiler diagnostics and a Lua interpreter for the syntax check of `.lua` files; both are found by themselves (see the sections below).
 
@@ -62,7 +62,7 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 
 ### Configuration
 
-- **Settings panel**: the command **Pluto: Settings** opens a window with a tab for each group of settings, switches, choices and real color pickers. See [Settings panel](#settings-panel).
+- **Settings panel**: the command **Plua: Settings** opens a window with a tab for each group of settings, switches, choices and real color pickers. See [Settings panel](#settings-panel).
 
 ### Lua files and the index
 
@@ -379,16 +379,16 @@ A `case` without a `:` gets a yellow line under the word `case` while the cursor
 
 ### Settings panel
 
-Run **Pluto: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Lua, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
+Run **Plua: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Lua, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
 
 It reads and writes the same settings as the standard settings editor and `settings.json`: a change is saved at once in your user settings, a value that is the default is taken out of `settings.json` instead of being written there, and what you change in `settings.json` shows up in the panel. A value that is not allowed (a color that is not a color, a number out of range) is refused with the reason, and the control shows the value that is in force. Only the settings of this extension can be changed with it.
 
 ### Commands
 
-- **Pluto: Run Script** — runs the current file with `pluto`.
-- **Pluto: Lint Script** — checks the current file with `plutoc -p`.
-- **Pluto: Rebuild Workspace Index**
-- **Pluto: Settings** — opens the [settings panel](#settings-panel).
+- **Plua: Run Script** — runs the current file with `pluto`.
+- **Plua: Lint Script** — checks the current file with `plutoc -p`.
+- **Plua: Rebuild Workspace Index**
+- **Plua: Settings** — opens the [settings panel](#settings-panel).
 
 ## Development
 
