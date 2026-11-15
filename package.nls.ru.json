@@ -1,6 +1,6 @@
 {
-	"displayName": "Pluto & Lua Language Support",
-	"description": "Поддержка языка Pluto (диалект Lua): подсветка синтаксиса, сниппеты, автодополнение, подсказки, справка по сигнатурам, переход к определению, структура файла и диагностика в реальном времени.",
+	"displayName": "Pluto & Lua Mini-IDE",
+	"description": "Мини-IDE для Pluto и Lua в VS Code: подсветка синтаксиса, автодополнение, подсказки, помощники при наборе, диагностика, проверка синтаксиса Lua и панель настроек.",
 	"config.title": "Pluto",
 	"command.run.title": "Pluto: Запустить скрипт",
 	"command.lint.title": "Pluto: Проверить скрипт",
@@ -112,6 +112,7 @@
 	"pluto.highlight.caseNoColon.markdownDescription": "Подчёркивать жёлтым слово `case` у `case` без `:` после значений, пока курсор на его строке.",
 	"pluto.diagnostics.returnTypes.markdownDescription": "Сообщать о функции, которая говорит, что возвращает тип, но `return` не использует (nullable-тип, `void` и `any` не трогаются), и о функции `void`, которая возвращает значение: `warning` (по умолчанию), `error` или `off`.",
 	"pluto.diagnostics.caseFallthrough.markdownDescription": "Отмечать `case`, тело которого не завершено `break`, `return`, `goto` или `continue` и переходит в следующий `case` (`hint`). `case` с пустым телом, который даёт двум `case` одно тело, не трогается. По умолчанию `off`: компилятор Pluto тоже предупреждает об этом.",
+	"pluto.format.suggestConstructor.markdownDescription": "В теле класса, у которого нет `__construct`, показывать серый `function __construct()` на пустой строке (и ` __construct()` после слова `function`); `Tab` вставляет его, курсор встаёт между скобками. Для класса с `extends` по `Alt+]` предлагается второй вариант, который ещё и вызывает `parent:__construct()`.",
 	"pluto.highlight.nullableTypes.markdownDescription": "Подсвечивать nullable-типы (`int?`, `?string`, `Vehicle?`) в аннотациях типов в файлах Pluto.",
 	"pluto.highlight.nullableTypeColor.markdownDescription": "Цвет nullable-типов в тёмных и высококонтрастных темах. Любой цвет CSS, например `#FFFFFF`.",
 	"pluto.highlight.nullableTypeLightColor.markdownDescription": "Цвет nullable-типов в светлых темах, где белый был бы не виден.",

@@ -495,15 +495,15 @@ function registerCommands(context, service)
 			new vscode.ShellExecution(command, [...extraArgs, editor.document.fileName])
 		));
 	};
-	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.run", function ()
+	context.subscriptions.push(vscode.commands.registerCommand("plua.run", function ()
 	{
 		runInTerminalTask(t("task.run"), "pluto", []);
 	}));
-	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.lint", function ()
+	context.subscriptions.push(vscode.commands.registerCommand("plua.lint", function ()
 	{
 		runInTerminalTask(t("task.lint"), "plutoc", ["-p"]);
 	}));
-	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.reindex", async function ()
+	context.subscriptions.push(vscode.commands.registerCommand("plua.reindex", async function ()
 	{
 		await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: t("status.indexing") }, () => service.scan());
 		vscode.window.setStatusBarMessage(t("status.indexed", service.index.files.size, service.index.manifests.size)

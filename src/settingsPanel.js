@@ -217,7 +217,7 @@ function registerSettingsPanel(context, options)
 		return { handle, show };
 	}
 	context.subscriptions.push(
-		vscode.commands.registerCommand("pluto-syntax-highlighting.openSettings", show),
+		vscode.commands.registerCommand("plua.openSettings", show),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
 			// Edited in settings.json or the standard editor: the panel follows.

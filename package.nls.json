@@ -1,6 +1,6 @@
 {
-	"displayName": "Pluto & Lua Language Support",
-	"description": "Language support for Pluto, a Lua dialect: syntax highlighting, snippets, completion, hover, signature help, go to definition, outline & live diagnostics.",
+	"displayName": "Pluto & Lua Mini-IDE",
+	"description": "A mini-IDE for Pluto and Lua in VS Code: syntax highlighting, completion, hover, typing helpers, diagnostics, a Lua syntax check and a settings panel.",
 	"config.title": "Pluto",
 	"command.run.title": "Pluto: Run Script",
 	"command.lint.title": "Pluto: Lint Script",
@@ -112,6 +112,7 @@
 	"pluto.highlight.caseNoColon.markdownDescription": "Underline in yellow the word `case` of a `case` that has no `:` after its values while the cursor is on its line.",
 	"pluto.diagnostics.returnTypes.markdownDescription": "Report a function that says it returns a type but never uses `return` (a nullable type, `void` and `any` are left alone), and a `void` function that returns a value: `warning` (default), `error` or `off`.",
 	"pluto.diagnostics.caseFallthrough.markdownDescription": "Mark a `case` whose body is not ended by `break`, `return`, `goto` or `continue` and runs into the next `case` (`hint`). A case with an empty body, which gives two cases one body, is left alone. `off` by default: the Pluto compiler warns about it too.",
+	"pluto.format.suggestConstructor.markdownDescription": "In the body of a class that has no `__construct`, show a grey `function __construct()` on an empty line (and ` __construct()` after the word `function`); `Tab` inserts it with the cursor between the brackets. For a class that `extends` another one, `Alt+]` offers a second one that also calls `parent:__construct()`.",
 	"pluto.highlight.nullableTypes.markdownDescription": "Highlight nullable types (`int?`, `?string`, `Vehicle?`) in type hints of Pluto files.",
 	"pluto.highlight.nullableTypeColor.markdownDescription": "Color of nullable types in dark and high contrast themes. Any CSS color, e.g. `#FFFFFF`.",
 	"pluto.highlight.nullableTypeLightColor.markdownDescription": "Color of nullable types in light themes, where white would be invisible.",

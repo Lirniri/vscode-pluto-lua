@@ -1229,7 +1229,7 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		assert(!h.includes("cam: int") && !h.includes("name: string") && !h.includes("entity: int") && !h.includes("ped"), h);
 		assert(h.includes("```pluto\nfunction module.does_exist(vehicle: int): bool\n\n  local is_entity"), h);
 		assert(!h.includes("showDeclarations"), h);
-		assert(h.includes("[$(preview) Peek Code](command:pluto-syntax-highlighting.peekCode?"), h);
+		assert(h.includes("[$(preview) Peek Code](command:plua.peekCode?"), h);
 		// Shorter paths, `.lua` files and the group file itself.
 		assert(hover("Atdar.natives.entity.ped.does_ex|ist(h)").includes("does_exist(ped)"));
 		const entity = hover("Atdar.natives.entity.does_ex|ist(h)");
@@ -1245,13 +1245,13 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		// Unknown path: every declaration, listed with a link that opens them all.
 		const all = hover("foo.bar.does_ex|ist(h)");
 		assert(all.includes("cam: int") && all.includes("name: string") && all.includes("ped") && !all.includes("more declarations"), all);
-		assert(all.includes("[Show all declarations (5)](command:pluto-syntax-highlighting.showDeclarations?"), all);
+		assert(all.includes("[Show all declarations (5)](command:plua.showDeclarations?"), all);
 		const { document, position } = at("foo.bar.does_ex|ist(h)");
 		const parts = providers.hoverProvider.provideHover(document, position).contents;
 		const link = parts[parts.length - 1];
-		assert.deepStrictEqual(link.isTrusted, { enabledCommands: ["pluto-syntax-highlighting.showDeclarations"] });
+		assert.deepStrictEqual(link.isTrusted, { enabledCommands: ["plua.showDeclarations"] });
 		const peekLink = parts[parts.length - 2];
-		assert.deepStrictEqual(peekLink.isTrusted, { enabledCommands: ["pluto-syntax-highlighting.peekCode"] });
+		assert.deepStrictEqual(peekLink.isTrusted, { enabledCommands: ["plua.peekCode"] });
 		assert(parts.slice(0, -2).every(md => !md.isTrusted), "only the generated links may be trusted");
 
 		// The limit of the hover; the link still counts everything.
@@ -3422,14 +3422,14 @@ test("settings panel: the page", function ()
 	assert(/^[A-Za-z0-9+/=]+$/.test(b64.trim()));
 	const data = JSON.parse(Buffer.from(b64.trim(), "base64").toString("utf8"));
 	assert.strictEqual(data.model.tabs[0].items[0].description, "<script>alert(1)</script></script><img src=x onerror=alert(2)>", "it arrives unchanged, for textContent");
-	assert.strictEqual(data.strings.title, "Pluto settings");
+	assert.strictEqual(data.strings.title, "Pluto & Lua Mini-IDE settings");
 	// Non-latin texts survive the trip.
 	require("../src/i18n").setLanguage("ru");
 	try
 	{
 		const ru = settingsPanel.renderHtml(model, settingsPanel.panelStrings(), "N", "x");
 		const back = JSON.parse(Buffer.from(/id="data">([^<]+)</.exec(ru)[1].trim(), "base64").toString("utf8"));
-		assert.strictEqual(back.strings.title, "Настройки Pluto");
+		assert.strictEqual(back.strings.title, "Pluto & Lua Mini-IDE: настройки");
 		assert(ru.includes('lang="ru"'));
 	}
 	finally
@@ -3443,8 +3443,8 @@ test("settings panel: the page", function ()
 	assert(!source.includes("</script"), "it can sit in a script element");
 	// The command is declared and has a title in both languages.
 	const { nlsRu } = readManifest();
-	assert(pkg.contributes.commands.some(c => c.command == "pluto-syntax-highlighting.openSettings"));
-	assert(pkg.activationEvents.includes("onCommand:pluto-syntax-highlighting.openSettings"));
+	assert(pkg.contributes.commands.some(c => c.command == "plua.openSettings"));
+	assert(pkg.activationEvents.includes("onCommand:plua.openSettings"));
 	assert.strictEqual(nls["command.openSettings.title"], "Pluto: Settings");
 	assert.strictEqual(nlsRu["command.openSettings.title"], "Pluto: Настройки");
 	// The tabs have titles in both languages.
@@ -3655,4 +3655,25 @@ test("hints: the diagnostics and the settings", function ()
 	assert.deepStrictEqual(props["pluto.diagnostics.returnTypes"].enum, ["warning", "error", "off"]);
 	assert.deepStrictEqual(props["pluto.diagnostics.caseFallthrough"].enum, ["off", "hint"]);
 	assert.strictEqual(props["pluto.diagnostics.caseFallthrough"].default, "off");
+});
+
+test("hints: a constructor is suggested for a class that has none", function ()
+{
+	const h = require("../src/hints");
+	const at = (s) => h.constructorSuggestionsAt(s.replace("@", ""), s.indexOf("@")).map((x) => x.kind + ":" + x.insert);
+	assert.deepStrictEqual(at("class A\n    @\nend"), ["ctor:function __construct()"]);
+	assert.deepStrictEqual(at("class A\n    function@\nend"), ["ctor: __construct()"]);
+	// extends: the second variant calls the parent's constructor
+	const ext = h.constructorSuggestionsAt("class A extends B\n    \nend", 22);
+	assert.deepStrictEqual(ext.map((x) => x.kind), ["ctor", "ctor-parent"]);
+	assert(ext[1].snippet.includes("parent:__construct($2)"));
+	// nothing: a constructor exists, inside a method, outside of a class, not in the body, another word
+	assert.deepStrictEqual(at("class A\n    function __construct()\n    end\n    @\nend"), []);
+	assert.deepStrictEqual(at("class A\n    function __construct()\n    end\n    function@\nend"), []);
+	assert.deepStrictEqual(at("class A\n    function m()\n        @\n    end\nend"), []);
+	assert.deepStrictEqual(at("function f()\n    @\nend"), []);
+	assert.deepStrictEqual(at("class A\n@\nend"), []);
+	assert.deepStrictEqual(at("class A\n    function foo@\nend"), []);
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.strictEqual(pkg.contributes.configuration.properties["pluto.format.suggestConstructor"].default, true);
 });

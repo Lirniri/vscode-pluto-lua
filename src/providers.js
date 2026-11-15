@@ -26,8 +26,8 @@ const SYMBOL_KINDS = {
 };
 
 /** Command run by the "show all declarations" link of hovers. */
-const SHOW_DECLARATIONS_COMMAND = "pluto-syntax-highlighting.showDeclarations";
-const PEEK_CODE_COMMAND = "pluto-syntax-highlighting.peekCode";
+const SHOW_DECLARATIONS_COMMAND = "plua.showDeclarations";
+const PEEK_CODE_COMMAND = "plua.peekCode";
 
 /** Upper bound of calls/returns listed under a single function in the Outline. */
 const MAX_CALLS_PER_FUNCTION = 50;

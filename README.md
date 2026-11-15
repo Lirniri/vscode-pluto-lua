@@ -1,37 +1,70 @@
-<p align="center"><img src="readme-logo.png" alt="Pluto → Lua" width="400"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme-logo-flat.png">
+    <img src="readme-logo.png" alt="Pluto &amp; Lua Mini-IDE" width="400">
+  </picture>
+</p>
 
 # Pluto & Lua Mini-IDE (Pluto & Lua Language Support)
 
-For information regarding the installation, features, & usage of this editor integration, [have a look at our documentation](https://plutolang.github.io/docs/Editor%20Integration).
+*A mini-IDE for [Pluto](https://plutolang.github.io/) and Lua inside Visual Studio Code: syntax highlighting, completion, hover, typing helpers, diagnostics, a Lua syntax check and a settings panel.*
 
 Русская версия этого файла: [README.ru.md](README.ru.md).
 
+## Install and quick start
+
+1. Download `pluto-lua-language-support-<version>.vsix` from the [releases](https://github.com/Lirniri/vscode-pluto-lua/releases) of this project.
+2. Install it: `code --install-extension pluto-lua-language-support-<version>.vsix`, or in VS Code open the Extensions view, click `...` and choose **Install from VSIX...**. If an older copy with a different publisher is installed, uninstall it first.
+3. Open a `.pluto` (or `.lua`) file. Highlighting and the language features work at once; open the **folder** of your project so that the index sees all its files.
+4. Press `Ctrl+Shift+P` and run **Pluto: Settings** for the settings panel (a tab for each group, color pickers).
+5. Open [demo-highlight.pluto](demo-highlight.pluto): every kind of token of the grammar in one file, to tune the colors on.
+6. Optional: the Pluto compiler (`plutoc`) for live compiler diagnostics and a Lua interpreter for the syntax check of `.lua` files; both are found by themselves (see the sections below).
+
+The language itself is described in the [Pluto documentation](https://plutolang.github.io/).
+
 ## Features in Visual Studio Code
 
-Besides syntax highlighting and snippets, the VS Code extension provides language features for `.pluto` files:
+What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua` files too (see [Lua files and the index](#lua-files-and-the-index)).
+
+
+### Highlighting and colors
+
+- **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, each with its own color for dark and light themes and a color picker in `settings.json`; wrong values are reported and never applied. See [Highlight colors](#highlight-colors).
+
+### Completion and navigation
 
 - **Completion** for Pluto keywords, the standard library (`string.split`, `table.contains`, `io.listdir`, `json.encode`, ...), built-in modules (`require "pluto:json"`), and everything declared in your workspace: classes, methods, fields, functions with their parameters and type hints, enums, and module ids from `info.json` manifests.
 - **Hover** with the signature, the comment written above the declaration, the file it comes from and, for functions and methods, their source code in a compact form (comments removed, indentation normalized, logical blocks separated by blank lines; see `pluto.hover.showFunctionBody` and `pluto.hover.maxBodyLines`). Hovering a return type (`void` in `function f(): void`) also shows what the developer wrote in an `@return` comment, above the function or inside of its body, e.g. `-- @return bool Whether it worked`; the same lines are part of the function's hover and signature help.
 - **Signature help** when typing `(`, highlighting the current argument.
 - **Go to Definition** (`F12` / `Ctrl+Click`) for classes, methods, functions, variables, and the file behind `require("...")`.
 - **Outline & breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), and **folding** of blocks, comments and `--#region` markers.
-- **Type hints**: typing `:` in `function f(a: `, `function f(): ` or `local x: ` opens the list of types (built-in types and your classes, each also as nullable `int?`); nullable types are highlighted and explained on hover (`(nullable type) int? — Can be int or nil`), also in signature help. Both spellings, `int?` and `?int`, are understood.
 - **Peek Code**: a **Peek Code** link at the bottom of a hover (`Показать код` in Russian) opens the declaration in a wide peek window with the code on the left and the list of locations on the right, even when there is only one declaration.
+
+### Types and typing helpers
+
+- **Type hints**: typing `:` in `function f(a: `, `function f(): ` or `local x: ` opens the list of types (built-in types and your classes, each also as nullable `int?`); nullable types are highlighted and explained on hover (`(nullable type) int? — Can be int or nil`), also in signature help. Both spellings, `int?` and `?int`, are understood.
 - **Union types** (`int|string`, `?int|string?`): hover the `|` to see what the whole union can hold, with `nil` made explicit.
-- **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, each with its own color for dark and light themes and a color picker in `settings.json`; wrong values are reported and never applied. See [Highlight colors](#highlight-colors).
-- **Lua syntax check**: with `pluto.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
-- **Paths of files in JSON files**: a path such as `"entry": "src/main.pluto"` that points to a missing file gets a warning, with a quick fix when the file was only moved. See [JSON path checks](#json-path-checks).
-- **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
 - **Default values of parameters**: the type of a parameter that has no default value (`test: bool`) gets a yellow wavy line while the cursor is on it, with a tooltip, and the values that fit the type (`= false`, `= true`) are suggested, by themselves when the cursor rests. See [Default values of parameters](#default-values-of-parameters).
-- **Typing helpers**: a new line after the comma of a multi-line list (after a pause, so you can go on typing), grey suggestions that `Tab` takes (`()` after `function`, ` = ` after `["key"]`, ` then` / ` do` after a block header), a warning for a parameter or table key written twice, and a quick fix (or an automatic fix after a pause) for a closing bracket that does not fit the last opened one (`{ ]`). See [Typing helpers](#typing-helpers).
-- **Settings panel**: the command **Pluto: Settings** opens a window with a tab for each group of settings, switches, choices and real color pickers. See [Settings panel](#settings-panel).
 - **Types and `switch` hints**: a grey `:` after a parameter name that has no type or after the `)` of a function (`Tab` opens the list of types), the values that fit a `return`, a grey `break` / `case` / `default:` and a `:` after a `case`, yellow lines for what is missing, and warnings for a function that does not return what it says. See [Typing helpers](#typing-helpers).
+- **Typing helpers**: a new line after the comma of a multi-line list (after a pause, so you can go on typing), grey suggestions that `Tab` takes (`()` after `function`, ` = ` after `["key"]`, ` then` / ` do` after a block header), a warning for a parameter or table key written twice, and a quick fix (or an automatic fix after a pause) for a closing bracket that does not fit the last opened one (`{ ]`). See [Typing helpers](#typing-helpers).
+- **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
+
+### Diagnostics and checks
+
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
   - built-in checks that need no compiler: `require("...")` of a module that doesn't exist in the workspace, calls with fewer arguments than the function has required parameters (parameters with `?` or `= default` are optional), and in `info.json`: a missing `id`, an `entry` file that doesn't exist, and `dependencies` with unknown ids.
 
   The compiler is taken from `pluto.diagnostics.compilerPath`; when that is empty, from the workspace (`pluto/*/plutoc.exe`, `bin/pluto/*/plutoc.exe`, `tools/pluto/...`; the newest version wins, `plutoc` before `pluto`), then from `PATH`. If none is found, only the built-in checks run. The compiler in use is logged in the **Pluto** output channel. In untrusted workspaces no compiler is run.
+- **Lua syntax check**: with `pluto.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
+- **Paths of files in JSON files**: a path such as `"entry": "src/main.pluto"` that points to a missing file gets a warning, with a quick fix when the file was only moved. See [JSON path checks](#json-path-checks).
+
+### Configuration
+
+- **Settings panel**: the command **Pluto: Settings** opens a window with a tab for each group of settings, switches, choices and real color pickers. See [Settings panel](#settings-panel).
+
+### Lua files and the index
 
 The language features also work in `.lua` files (switch them off with `pluto.lua.enable`, e.g. when `sumneko.lua` is installed; the compiler check only runs on `.pluto` files). All `.pluto` and `.lua` files of the workspace are indexed in the background and kept up to date as you edit. Files matched by `.gitignore`, `.plutoignore` or the exclude settings below are left out: they don't show up in completion, hover or Go to Definition of other files, and the index follows along when an ignore file changes. An excluded file that you open still gets all features for its own code. This is a lightweight index, not a full language server: types are only inferred from type hints, `new Class(...)` and `require`.
 
@@ -109,6 +142,7 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.format.suggestCaseColon` | `true` | A grey `:` after the values of a `case`. |
 | `pluto.format.suggestCaseBreak` | `true` | A grey `break` in the body of a `case` that nothing ends. |
 | `pluto.format.suggestCaseWords` | `true` | A grey `case ` / `default:` at the level of the cases of a `switch`. |
+| `pluto.format.suggestConstructor` | `true` | A grey `__construct` in a class that has none. |
 | `pluto.highlight.paramNoType` | `true` | A yellow line under the name of a parameter that has no type, while the cursor is on it. |
 | `pluto.highlight.caseNoColon` | `true` | A yellow line under a `case` that has no `:`, while the cursor is on its line. |
 | `pluto.diagnostics.returnTypes` | `warning` | A function that says it returns a type but never uses `return`, and a `void` function that returns a value: `warning`, `error` or `off`. |
@@ -202,6 +236,13 @@ Strings in a JSON file that look like the path of a file are checked. By default
 The files that match `.gitignore`, `.plutoignore` or `.luaignore` (all in the workspace root, `.gitignore` syntax; the list is `pluto.workspace.ignoreFiles`) are not indexed, so they get no completion or navigation. `pluto.workspace.exclude` adds glob patterns, and `files.exclude` and `search.exclude` apply as well.
 
 ### Lua interpreter
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme-logo-lua-flat.png">
+    <img src="readme-logo-lua.png" alt="Lua" width="240">
+  </picture>
+</p>
 
 While `pluto.lua.enable` is on, `.lua` files are checked for syntax errors by a Lua interpreter, in the same way `plutoc` checks `.pluto` files. The interpreter is `pluto.lua.compilerPath`, else `luac`, `lua` or `luajit` in `bin/lua`, `tools/lua`, `lua5.4` and similar folders of the workspace (`luac`, which only parses, is preferred; the newest version wins), else the `PATH`. With `lua` or `luajit` the code is compiled with `load` and never run. A workspace has to be trusted for a program from it to be started. Turn this off with `pluto.lua.checkSyntax`.
 
@@ -326,6 +367,7 @@ The nearest table of the file (`local items = { ... }`) gives the name, and its 
 | after the values of a `case`: `case 1▮`, `case 2, 3▮` (after the pause) | `:` | `pluto.format.suggestCaseColon` |
 | an empty line in the body of a `case` that nothing ends (not `default`), before the next `case`, `default` or `end` | `break` | `pluto.format.suggestCaseBreak` |
 | an empty line at the level of the cases | `case ` and `default:` (`default` only once) | `pluto.format.suggestCaseWords` |
+| an empty line in the body of a class that has no `__construct`, or `function▮` there | `function __construct()` / ` __construct()`; with `extends` a second one (`Alt+]`) that also calls `parent:__construct()` | `pluto.format.suggestConstructor` |
 
 A `case` without a `:` gets a yellow line under the word `case` while the cursor is on its line (`pluto.highlight.caseNoColon`). `pluto.diagnostics.caseFallthrough` can mark, as a hint, a `case` that nothing ends (`break`, `return`, `goto`, `continue`, `error(...)`) and that runs into the next one; a case with an empty body, which gives two cases one body, is left alone. The Pluto compiler warns about the same thing.
 
@@ -386,6 +428,7 @@ The extension is plain JavaScript and needs no build step.
 | `src/settingsModel.js`, `src/settingsPanel.js`, `src/settingsClient.js` | The settings panel: tabs and what may be saved, the window, the script of the page |
 | `src/autoFormat.js`, `src/autoFormatEditor.js` | Typing helpers: new line after a comma, grey suggestions, duplicate names, closers that do not fit |
 
+- Get the sources: `git clone https://github.com/Lirniri/vscode-pluto-lua`.
 - Open this folder in VS Code and press `F5` to try the extension in a new window.
 - `npm test` runs the grammar tests and the language feature tests.
 - `npm run package` builds a `.vsix`, which can be installed with `code --install-extension <file>.vsix`.
@@ -394,3 +437,5 @@ The extension is plain JavaScript and needs no build step.
 ## Credits
 
 This project started with the base of https://github.com/LuaLS/lua.tmbundle, which itself is based on https://github.com/textmate/lua.tmbundle.
+
+This project grew out of [PlutoLang/Syntax-Highlighting](https://github.com/PlutoLang/Syntax-Highlighting) (the TextMate grammar and the snippets) and extends it with the language features of the VS Code extension. Their license is in `LICENSE.txt`; the license of this project is in `LICENSE`.

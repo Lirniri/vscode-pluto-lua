@@ -6,11 +6,15 @@
 		"Pluto language",
 		"pluto",
 		"lua",
+		"mini-ide",
+		"highlighting",
+		"completion",
 		"intellisense",
 		"diagnostics",
-		"linter"
+		"linter",
+		"settings"
 	],
-	"version": "0.29.0",
+	"version": "0.29.2",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -25,8 +29,17 @@
 	},
 	"categories": [
 		"Programming Languages",
-		"Snippets"
+		"Snippets",
+		"Linters"
 	],
+	"galleryBanner": {
+		"color": "#241447",
+		"theme": "dark"
+	},
+	"homepage": "https://github.com/Lirniri/vscode-pluto-lua#readme",
+	"bugs": {
+		"url": "https://github.com/Lirniri/vscode-pluto-lua/issues"
+	},
 	"contributes": {
 		"languages": [
 			{
@@ -67,27 +80,27 @@
 		],
 		"commands": [
 			{
-				"command": "pluto-syntax-highlighting.run",
+				"command": "plua.run",
 				"title": "%command.run.title%"
 			},
 			{
-				"command": "pluto-syntax-highlighting.lint",
+				"command": "plua.lint",
 				"title": "%command.lint.title%"
 			},
 			{
-				"command": "pluto-syntax-highlighting.reindex",
+				"command": "plua.reindex",
 				"title": "%command.reindex.title%"
 			},
 			{
-				"command": "pluto-syntax-highlighting.showDeclarations",
+				"command": "plua.showDeclarations",
 				"title": "%command.showDeclarations.title%"
 			},
 			{
-				"command": "pluto-syntax-highlighting.peekCode",
+				"command": "plua.peekCode",
 				"title": "%command.peekCode.title%"
 			},
 			{
-				"command": "pluto-syntax-highlighting.openSettings",
+				"command": "plua.openSettings",
 				"title": "%command.openSettings.title%"
 			}
 		],
@@ -617,6 +630,11 @@
 					"default": true,
 					"markdownDescription": "%pluto.format.suggestCaseWords.markdownDescription%"
 				},
+				"pluto.format.suggestConstructor": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.format.suggestConstructor.markdownDescription%"
+				},
 				"pluto.format.suggestParens": {
 					"type": "boolean",
 					"default": true,
@@ -708,11 +726,11 @@
 		"menus": {
 			"commandPalette": [
 				{
-					"command": "pluto-syntax-highlighting.showDeclarations",
+					"command": "plua.showDeclarations",
 					"when": "false"
 				},
 				{
-					"command": "pluto-syntax-highlighting.peekCode",
+					"command": "plua.peekCode",
 					"when": "false"
 				}
 			]
@@ -729,13 +747,13 @@
 	"main": "./src/extension.js",
 	"activationEvents": [
 		"onLanguage:pluto",
-		"onCommand:pluto-syntax-highlighting.run",
-		"onCommand:pluto-syntax-highlighting.lint",
-		"onCommand:pluto-syntax-highlighting.reindex",
+		"onCommand:plua.run",
+		"onCommand:plua.lint",
+		"onCommand:plua.reindex",
 		"workspaceContains:**/*.pluto",
-		"onCommand:pluto-syntax-highlighting.showDeclarations",
-		"onCommand:pluto-syntax-highlighting.peekCode",
-		"onCommand:pluto-syntax-highlighting.openSettings"
+		"onCommand:plua.showDeclarations",
+		"onCommand:plua.peekCode",
+		"onCommand:plua.openSettings"
 	],
 	"devDependencies": {
 		"vscode-oniguruma": "^2.0.1",

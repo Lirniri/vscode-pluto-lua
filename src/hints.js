@@ -684,6 +684,115 @@ function findCaseFallthroughs(text)
 	return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// A constructor for a class that has none
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * What a class has at its own level: the names of its methods and what it extends.
+ * @returns {{ methods: string[], extends: string|null }}
+ */
+function classMembers(tokens, classIdx)
+{
+	const out = { methods: [], extends: null };
+	if (isId(tokens[classIdx + 2], "extends") && isId(tokens[classIdx + 3]))
+	{
+		out.extends = tokens[classIdx + 3].v;
+	}
+	let depth = 0;
+	let pendingDo = 0;
+	for (let k = classIdx + 1; k < tokens.length; ++k)
+	{
+		const t = tokens[k];
+		if (t.t != "id")
+		{
+			continue;
+		}
+		if (t.v == "end" || t.v == "until")
+		{
+			if (depth == 0)
+			{
+				break;
+			}
+			--depth;
+		}
+		else if (t.v == "do")
+		{
+			if (pendingDo > 0)
+			{
+				--pendingDo;
+			}
+			else
+			{
+				++depth;
+			}
+		}
+		else if (BLOCK_OPENERS.has(t.v) && !isP(tokens[k - 1], ".") && !(t.v == "function" && isFunctionType(tokens, k)))
+		{
+			if (t.v == "function" && depth == 0 && isId(tokens[k + 1]))
+			{
+				out.methods.push(tokens[k + 1].v);
+			}
+			++depth;
+			if (NEEDS_DO.has(t.v))
+			{
+				++pendingDo;
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * A constructor to suggest where a class has none: `function __construct()` on an empty line of the body, or what
+ * follows `function` when only that is typed. A class that extends another gets a second one that calls the parent's.
+ * @param {string} text
+ * @param {number} offset
+ * @returns {{ kind: string, insert: string, snippet: string }[]}
+ */
+function constructorSuggestionsAt(text, offset)
+{
+	const around = lineAround(text, offset);
+	const line = text.slice(0, offset).split("\n").length - 1;
+	const before = text.slice(around.start, offset);
+	const emptyLine = around.text.trim() == "";
+	const afterFunction = /^\s*function$/.test(before) && text.slice(offset, around.end).trim() == "";
+	if (!emptyLine && !afterFunction)
+	{
+		return [];
+	}
+	// the lone `function` would open a block of its own, so it is blanked out for the analysis
+	const source = afterFunction ? text.slice(0, offset - 8) + " ".repeat(8) + text.slice(offset) : text;
+	const { tokens, stack } = analyze(source, line);
+	const top = stack[stack.length - 1];
+	if (!top || top.kind != "block" || (top.name != "class" && top.name != "pluto_class"))
+	{
+		return [];
+	}
+	const members = classMembers(tokens, top.idx);
+	if (members.methods.includes("__construct"))
+	{
+		return [];
+	}
+	if (emptyLine && indentOf(around.text).length <= indentOf(lineAround(text, tokens[top.idx].off).text).length)
+	{
+		return []; // not inside of the body
+	}
+	const head = emptyLine ? "function" : "";
+	const lead = emptyLine ? "" : " ";
+	const out = [{ kind: "ctor", insert: lead + head + (emptyLine ? " " : "") + "__construct()", snippet: lead + head + (emptyLine ? " " : "") + "__construct($1)" }];
+	if (members.extends)
+	{
+		const base = lead + head + (emptyLine ? " " : "") + "__construct";
+		out.push({
+			kind: "ctor-parent",
+			insert: base + "()\n\tparent:__construct()\nend",
+			snippet: base + "($1)\n\tparent:__construct($2)\nend",
+		});
+	}
+	return out;
+}
+
 /**
  * The suggestions of this module at a place. Those with `paused` wait for the cursor to rest (they would flicker
  * while you type), the others are shown at once.
@@ -745,5 +854,5 @@ function suggestionsAt(text, offset, options, extra)
 
 module.exports = {
 	untypedParamAt, returnColonAt, returnValuesAt, enclosingReturnType, findReturnProblems, functionHeader,
-	caseColonAt, caseNoColonAt, caseBreakAt, caseWordsAt, findCaseFallthroughs, suggestionsAt,
+	caseColonAt, caseNoColonAt, caseBreakAt, caseWordsAt, findCaseFallthroughs, suggestionsAt, classMembers, constructorSuggestionsAt,
 };

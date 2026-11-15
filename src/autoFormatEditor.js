@@ -7,7 +7,7 @@
 const vscode = require("vscode");
 const fs = require("fs");
 const { planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, findBracketMismatches, countIfStyles, chooseIfWord, namesFor } = require("./autoFormat");
-const { suggestionsAt } = require("./hints");
+const { suggestionsAt, constructorSuggestionsAt } = require("./hints");
 const { classChecker } = require("./defaultValuesEditor");
 const { t } = require("./i18n");
 
@@ -352,6 +352,12 @@ function registerAutoFormat(context, service)
 				const text = document.getText();
 				const offset = document.offsetAt(position);
 				const items = [];
+				// A class without a constructor: it comes first, the plain `()` after it.
+				if (config.get("format.suggestConstructor", true) !== false && document.languageId == "pluto")
+				{
+					const ctor = constructorSuggestionsAt(text, offset);
+					ctor.forEach((c) => items.push(new vscode.InlineCompletionItem(new vscode.SnippetString(c.snippet), new vscode.Range(position, position))));
+				}
 				const add = (s) => items.push(new vscode.InlineCompletionItem(s.snippet ? new vscode.SnippetString(s.snippet) : s.insert, new vscode.Range(position, position),
 					s.command ? { command: s.command, title: "" } : undefined));
 				if (options.parens || options.keyAssign || options.blockWords || options.forHints)
