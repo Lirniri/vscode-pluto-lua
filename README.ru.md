@@ -1,6 +1,6 @@
 <p align="center"><img src="readme-logo.png" alt="Pluto → Lua" width="400"></p>
 
-# Pluto Syntax Highlighting (Pluto & Lua Language Support)
+# Pluto & Lua Mini-IDE (Pluto & Lua Language Support)
 
 [English version](README.md)
 
