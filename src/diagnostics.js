@@ -7,6 +7,8 @@ const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
 const { lintSource, lintManifest } = require("./lint");
+const { lintJsonPaths, extensionOf } = require("./jsonPaths");
+const { GlobSet } = require("./ignore");
 const compiler = require("./compiler");
 const { t } = require("./i18n");
 
@@ -30,7 +32,15 @@ class DiagnosticsManager
 		this._runIds = new Map();
 		/** @type {{ path: string|null, source: string|null }|null} */
 		this._compiler_ = null;
+		/** @type {{ path: string|null, source: string|null }|null} The Lua interpreter that checks `.lua` files. */
+		this._luaCompiler_ = null;
 		this._relintTimer = null;
+		/** Every file of the workspace folders (not ignored), for the paths in JSON files; null until read. */
+		this._allFiles = null;
+		this._allFilesLoading = false;
+		this._noFolderShown = false;
+		/** Suggestions of the "file not found" problems, by document and position, for the quick fix. */
+		this.jsonSuggestions = new Map();
 	}
 
 	_config()
@@ -42,6 +52,15 @@ class DiagnosticsManager
 			compilerPath: config.get("diagnostics.compilerPath", "") || "",
 			debounceMs: Math.max(0, Number(config.get("diagnostics.debounceMs", 400)) || 0),
 			indexEnabled: config.get("index.enabled", true),
+			// `.lua` files are syntax-checked with a Lua interpreter while the Lua support is on.
+			luaCheck: config.get("lua.enable", true) !== false && config.get("lua.checkSyntax", true) !== false,
+			luaCompilerPath: config.get("lua.compilerPath", "") || "",
+			jsonEnabled: config.get("json.enable", true) !== false,
+			jsonFiles: config.get("json.files", ["**/info.json"]),
+			jsonExtensions: config.get("json.extensions", [".pluto", ".lua"]),
+			jsonCheckAll: config.get("json.checkAllPaths", false) === true,
+			jsonSeverity: config.get("json.severity", "warning"),
+			jsonNotify: config.get("json.notifyNoFolder", true) !== false,
 		};
 	}
 
@@ -90,10 +109,39 @@ class DiagnosticsManager
 		return this._compiler_;
 	}
 
-	/** Forgets the detected compiler, e.g. after its setting changed. */
+	/**
+	 * The Lua interpreter that checks `.lua` files (only while `pluto.lua.enable` is on): `pluto.lua.compilerPath`,
+	 * else `bin/lua`, `tools/lua`... of the workspace, else `luac` / `lua` / `luajit` on the PATH.
+	 */
+	luaCompiler()
+	{
+		if (!this._luaCompiler_)
+		{
+			if (!this._trusted())
+			{
+				this._luaCompiler_ = { path: null, source: null };
+				this._log(t("diag.untrusted"));
+				return this._luaCompiler_;
+			}
+			const folders = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme == "file").map(f => f.uri.fsPath);
+			const found = compiler.findCompiler({ configured: this._config().luaCompilerPath, workspaceFolders: folders, family: "lua" });
+			if (found.problem)
+			{
+				this._log(found.problem.replace("pluto.diagnostics.compilerPath", "pluto.lua.compilerPath"));
+			}
+			this._log(found.path
+				? t("diag.luaUsing", found.path, t("diag.source." + found.source).replace("pluto.diagnostics.compilerPath", "pluto.lua.compilerPath"))
+				: t("diag.luaNone"));
+			this._luaCompiler_ = found;
+		}
+		return this._luaCompiler_;
+	}
+
+	/** Forgets the detected compilers, e.g. after a setting changed. */
 	resetCompiler()
 	{
 		this._compiler_ = null;
+		this._luaCompiler_ = null;
 	}
 
 	_isPluto(document)
@@ -109,7 +157,7 @@ class DiagnosticsManager
 	/** Whether this extension checks the document at all (`.lua` files only while `pluto.lua.enable` is on). */
 	_isChecked(document, config)
 	{
-		if (this._isPluto(document) || this._isManifest(document))
+		if (this._isPluto(document) || this._isManifest(document) || this._isJsonPaths(document, config))
 		{
 			return true;
 		}
@@ -122,12 +170,47 @@ class DiagnosticsManager
 	}
 
 	/**
+	 * Whether the paths in a JSON document are checked: `pluto.json.files` (default `**\/info.json`).
+	 * The patterns are matched against the path inside of the workspace folder, or the whole path outside of one.
+	 */
+	_isJsonPaths(document, config)
+	{
+		if (!config.jsonEnabled || !/\.jsonc?$/i.test(document.uri.path) || document.uri.scheme != "file")
+		{
+			return false;
+		}
+		const globs = new GlobSet(Array.isArray(config.jsonFiles) ? config.jsonFiles : []);
+		if (globs.empty)
+		{
+			return false;
+		}
+		const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+		const full = document.uri.path.replace(/^\//, "");
+		if (folder)
+		{
+			const base = folder.uri.path.replace(/\/+$/, "");
+			if (globs.matches(document.uri.path.slice(base.length + 1)))
+			{
+				return true;
+			}
+		}
+		return globs.matches(full);
+	}
+
+	/** Whether a document is checked in any way: Pluto, Lua, manifests and the JSON files with paths. */
+	_isRelevant(document)
+	{
+		return this._isPluto(document) || this._isManifest(document) || this._isLua(document)
+			|| (/\.jsonc?$/i.test(document.uri.path) && this._isJsonPaths(document, this._config()));
+	}
+
+	/**
 	 * Re-checks a document after the configured delay.
 	 * @param {vscode.TextDocument} document
 	 */
 	schedule(document, immediate)
 	{
-		if (!this._isPluto(document) && !this._isManifest(document) && !this._isLua(document))
+		if (!this._isRelevant(document))
 		{
 			return;
 		}
@@ -163,9 +246,9 @@ class DiagnosticsManager
 			return Promise.resolve();
 		}
 		const key = document.uri.toString();
-		if (this._isManifest(document))
+		if (this._isManifest(document) || this._isJsonPaths(document, config))
 		{
-			this._lint.set(key, this._lintManifest(document, config));
+			this._lint.set(key, this._lintJson(document, config));
 			this._publish(document.uri);
 			return Promise.resolve();
 		}
@@ -184,7 +267,12 @@ class DiagnosticsManager
 		}
 		if (!this._isPluto(document))
 		{
-			// The Pluto compiler is no checker for Lua code (Lua may use names that are keywords in Pluto).
+			this._publish(document.uri);
+			if (config.luaCheck)
+			{
+				// Not the Pluto compiler (Lua may use names that are keywords in Pluto): a Lua interpreter.
+				return this._runCompiler(document);
+			}
 			this._compiler.delete(key);
 			this._publish(document.uri);
 			return Promise.resolve();
@@ -219,19 +307,166 @@ class DiagnosticsManager
 		return problems.map(p => this._toDiagnostic(p, "pluto-lint"));
 	}
 
-	_lintManifest(document, config)
+	/** The files of the workspace for the paths in JSON files: Pluto and Lua files, or all files with `checkAllPaths`. */
+	_knownFiles(config)
+	{
+		if (config.jsonCheckAll)
+		{
+			if (this._allFiles)
+			{
+				return this._allFiles;
+			}
+			this._loadAllFiles();
+		}
+		return [...this.service.index.files.values()].map(f => f.path.replace(/\\/g, "/"));
+	}
+
+	/** Reads the names of all files of the workspace folders once, without the ignored ones. */
+	_loadAllFiles()
+	{
+		if (this._allFilesLoading || !vscode.workspace.workspaceFolders)
+		{
+			return;
+		}
+		this._allFilesLoading = true;
+		const max = Math.max(1, Number(vscode.workspace.getConfiguration("pluto").get("index.maxFiles", 5000)) || 5000);
+		const filter = this.service.filter;
+		Promise.resolve(vscode.workspace.findFiles("**/*", filter.findFilesExclude(), max * 4))
+			.then((uris) =>
+			{
+				this._allFiles = uris.filter(u => u.scheme == "file" && !filter.isExcluded(u)).map(u => u.fsPath.replace(/\\/g, "/"));
+				this.recheckSoon();
+			})
+			.catch(() => { this._allFiles = []; })
+			.then(() => { this._allFilesLoading = false; });
+	}
+
+	/** Forgets the list of all files, e.g. after a file was created or deleted. */
+	invalidateFiles()
+	{
+		if (this._allFiles !== null)
+		{
+			this._allFiles = null;
+			this.recheckSoon();
+		}
+	}
+
+	/** Tells once that without a folder only the neighbourhood of the JSON file is searched. */
+	_notifyNoFolder(config)
+	{
+		if (this._noFolderShown || !config.jsonNotify || !vscode.window.showInformationMessage)
+		{
+			return;
+		}
+		this._noFolderShown = true;
+		const open = t("json.openFolder");
+		const more = t("json.moreInfo");
+		const never = t("json.dontShow");
+		Promise.resolve(vscode.window.showInformationMessage(t("json.noFolder"), open, more, never)).then(function (choice)
+		{
+			if (choice == open)
+			{
+				vscode.commands.executeCommand("workbench.action.files.openFolder");
+			}
+			else if (choice == more)
+			{
+				vscode.env.openExternal(vscode.Uri.parse("https://github.com/Lirniri/vscode-pluto-lua#json-path-checks"));
+			}
+			else if (choice == never)
+			{
+				vscode.workspace.getConfiguration("pluto").update("json.notifyNoFolder", false, vscode.ConfigurationTarget.Global);
+			}
+		}, () => {});
+	}
+
+	/** Problems of a JSON document: module manifest checks (`info.json`) and the paths of files in it. */
+	_lintJson(document, config)
+	{
+		const key = document.uri.toString();
+		let problems = [];
+		const local = document.uri.scheme == "file";
+		if (this._isManifest(document))
+		{
+			problems = this._lintManifest(document, config, true);
+		}
+		this.jsonSuggestions.delete(key);
+		if (this._isJsonPaths(document, config))
+		{
+			const roots = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme == "file").map(f => f.uri.fsPath.replace(/\\/g, "/"));
+			const inFolder = !!vscode.workspace.getWorkspaceFolder(document.uri);
+			if (!inFolder)
+			{
+				this._notifyNoFolder(config);
+			}
+			const known = this._knownFiles(config);
+			const extensions = new Set((Array.isArray(config.jsonExtensions) ? config.jsonExtensions : [".pluto", ".lua"])
+				.filter(e => typeof e == "string" && e.trim())
+				.map(e => (e.trim().startsWith(".") ? e.trim() : "." + e.trim()).toLowerCase()));
+			if (config.jsonCheckAll)
+			{
+				for (const file of known)
+				{
+					const ext = extensionOf(file);
+					if (ext)
+					{
+						extensions.add(ext);
+					}
+				}
+			}
+			const found = lintJsonPaths(document.getText(), document.uri.fsPath, {
+				exists: local ? (p) => this._existsAny(p) : () => true,
+				roots: inFolder ? roots : [],
+				files: inFolder ? known : [],
+				extensions,
+				skipKeys: this._isManifest(document) ? new Set(["entry", "main"]) : undefined,
+				severity: ["error", "information"].includes(config.jsonSeverity) ? config.jsonSeverity : "warning",
+			});
+			const suggestions = new Map();
+			for (const p of found)
+			{
+				if (p.suggestions.length)
+				{
+					suggestions.set(p.line + ":" + p.col, { suggestions: p.suggestions, value: p.value });
+				}
+				problems.push(this._toDiagnostic(p, "pluto-lint"));
+			}
+			if (suggestions.size)
+			{
+				this.jsonSuggestions.set(key, suggestions);
+			}
+		}
+		return problems.map(p => p instanceof vscode.Diagnostic ? p : this._toDiagnostic(p, "pluto-lint"));
+	}
+
+	_existsAny(p)
+	{
+		try
+		{
+			fs.statSync(p);
+			return true;
+		}
+		catch (e)
+		{
+			return false;
+		}
+	}
+
+	_lintManifest(document, config, raw)
 	{
 		const problems = lintManifest(document.getText(), document.uri.fsPath, this.service.index, {
 			exists: document.uri.scheme == "file" ? (p) => this._exists(p) : undefined,
 			checkDependencies: config.indexEnabled,
 		});
-		return problems.map(p => this._toDiagnostic(p, "pluto-lint"));
+		return raw ? problems : problems.map(p => this._toDiagnostic(p, "pluto-lint"));
 	}
 
 	_toDiagnostic(p, source)
 	{
 		const range = new vscode.Range(p.line, p.col, p.endLine, Math.max(p.endCol, p.endLine == p.line ? p.col + 1 : 0));
-		const d = new vscode.Diagnostic(range, p.message, p.severity == "error" ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+		const severity = p.severity == "error" ? vscode.DiagnosticSeverity.Error
+			: p.severity == "information" ? vscode.DiagnosticSeverity.Information
+				: vscode.DiagnosticSeverity.Warning;
+		const d = new vscode.Diagnostic(range, p.message, severity);
 		d.source = source;
 		if (p.code)
 		{
@@ -249,7 +484,9 @@ class DiagnosticsManager
 			previous.cancel();
 			this._runs.delete(key);
 		}
-		const found = this.compiler();
+		const isLuaFile = !this._isPluto(document);
+		const found = isLuaFile ? this.luaCompiler() : this.compiler();
+		const source = isLuaFile ? "lua" : "pluto";
 		if (!found.path)
 		{
 			if (this._compiler.delete(key))
@@ -275,7 +512,14 @@ class DiagnosticsManager
 			{
 				// The compiler can't be started (deleted, no permission…): stop using it, quietly.
 				this._log(t("diag.failedToRun", found.path, result.error.message));
-				this._compiler_ = { path: null, source: null };
+				if (isLuaFile)
+				{
+					this._luaCompiler_ = { path: null, source: null };
+				}
+				else
+				{
+					this._compiler_ = { path: null, source: null };
+				}
 				this._compiler.delete(key);
 				this._publish(document.uri);
 				return;
@@ -303,7 +547,7 @@ class DiagnosticsManager
 					col = lineText.length - lineText.replace(/^\s+/, "").length;
 					endCol = Math.max(col + 1, lineText.replace(/\s+$/, "").length);
 				}
-				return this._toDiagnostic({ line, col, endLine: line, endCol: Math.max(endCol, col + 1), severity: p.severity, message: p.message }, "pluto");
+				return this._toDiagnostic({ line, col, endLine: line, endCol: Math.max(endCol, col + 1), severity: p.severity, message: p.message }, source);
 			});
 			this._compiler.set(key, diagnostics);
 			this._publish(document.uri);
@@ -340,7 +584,7 @@ class DiagnosticsManager
 		const config = this._config();
 		for (const document of vscode.workspace.textDocuments)
 		{
-			if (!this._isPluto(document) && !this._isManifest(document) && !this._isLua(document))
+			if (!this._isRelevant(document))
 			{
 				continue;
 			}
@@ -357,7 +601,7 @@ class DiagnosticsManager
 				const key = document.uri.toString();
 				try
 				{
-					this._lint.set(key, this._isManifest(document) ? this._lintManifest(document, config) : this._lintSource(document, config));
+					this._lint.set(key, this._isManifest(document) || this._isJsonPaths(document, config) ? this._lintJson(document, config) : this._lintSource(document, config));
 				}
 				catch (e)
 				{
@@ -425,8 +669,14 @@ function registerDiagnostics(context, service, indexed)
 			}
 			else if (event.affectsConfiguration("pluto.lua"))
 			{
-				manager.recheckAll(false);
+				manager.resetCompiler();
+				manager.recheckAll(true);
 				manager.recheckSoon(); // once the index has been rebuilt
+			}
+			else if (event.affectsConfiguration("pluto.json"))
+			{
+				manager.invalidateFiles();
+				manager.recheckAll(false);
 			}
 			else if (event.affectsConfiguration("pluto.diagnostics"))
 			{
@@ -460,6 +710,46 @@ function registerDiagnostics(context, service, indexed)
 		watcher.onDidChange(uri => MANIFEST.test(uri.path) && manager.recheckSoon()),
 		watcher.onDidDelete(() => manager.recheckSoon())
 	);
+
+	// Paths in JSON files: a file created, deleted or renamed can fix or break them. (A watcher on everything is
+	// only needed with `pluto.json.checkAllPaths`; creating one on demand keeps the default cheap.)
+	let everything = null;
+	const watchEverything = function ()
+	{
+		if (everything || !vscode.workspace.getConfiguration("pluto").get("json.checkAllPaths", false))
+		{
+			return;
+		}
+		everything = vscode.workspace.createFileSystemWatcher("**/*");
+		context.subscriptions.push(everything, everything.onDidCreate(() => manager.invalidateFiles()), everything.onDidDelete(() => manager.invalidateFiles()));
+	};
+	watchEverything();
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration("pluto.json") && watchEverything()));
+	context.subscriptions.push(vscode.languages.registerCodeActionsProvider(
+		[{ language: "json" }, { language: "jsonc" }],
+		{
+			provideCodeActions(document, range, actionContext)
+			{
+				const actions = [];
+				const found = manager.jsonSuggestions.get(document.uri.toString());
+				for (const d of actionContext.diagnostics)
+				{
+					const item = d.code == "json-path" && found && found.get(d.range.start.line + ":" + d.range.start.character);
+					for (const suggestion of item ? item.suggestions : [])
+					{
+						const action = new vscode.CodeAction(t("json.replaceWith", suggestion), vscode.CodeActionKind.QuickFix);
+						action.diagnostics = [d];
+						action.isPreferred = suggestion == item.suggestions[0];
+						action.edit = new vscode.WorkspaceEdit();
+						action.edit.replace(document.uri, new vscode.Range(d.range.start.line, d.range.start.character + 1, d.range.end.line, Math.max(d.range.start.character + 1, d.range.end.character - 1)), suggestion);
+						actions.push(action);
+					}
+				}
+				return actions;
+			},
+		},
+		{ providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
+	));
 
 	// Built-in checks need the index, so check open documents once it is built.
 	Promise.resolve(indexed).catch(() => {}).then(() => manager.recheckAll(true));

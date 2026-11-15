@@ -15,6 +15,9 @@ Besides syntax highlighting and snippets, the VS Code extension provides languag
 - **Peek Code**: a **Peek Code** link at the bottom of a hover (`Показать код` in Russian) opens the declaration in a wide peek window with the code on the left and the list of locations on the right, even when there is only one declaration.
 - **Union types** (`int|string`, `?int|string?`): hover the `|` to see what the whole union can hold, with `nil` made explicit.
 - **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, each with its own color for dark and light themes and a color picker in `settings.json`; wrong values are reported and never applied. See [Highlight colors](#highlight-colors).
+- **Lua syntax check**: with `pluto.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
+- **Paths of files in JSON files**: a path such as `"entry": "src/main.pluto"` that points to a missing file gets a warning, with a quick fix when the file was only moved. See [JSON path checks](#json-path-checks).
+- **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -50,7 +53,7 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.lua.indexFiles` | `true` | Read `.lua` files into the index so Pluto code gets completion and navigation into the Lua modules it requires. Independent of `pluto.lua.enable`. |
 | `pluto.index.includeLua` | `true` | Deprecated, use `pluto.lua.indexFiles`. Still honored: when `false`, `.lua` files are not indexed. |
 | `pluto.workspace.useGitignore` | `true` | Leave files matched by `.gitignore` out of the index. |
-| `pluto.workspace.ignoreFiles` | `[".gitignore", ".plutoignore"]` | Ignore files (`.gitignore` syntax) in the workspace root to read exclusions from. |
+| `pluto.workspace.ignoreFiles` | `[".gitignore", ".plutoignore", ".luaignore"]` | Ignore files (`.gitignore` syntax) in the workspace root to read exclusions from. |
 | `pluto.workspace.exclude` | `[]` | Glob patterns to leave out of the index, e.g. `**/vendor/**`. |
 | `pluto.workspace.useSearchExclude` | `true` | Also apply `search.exclude`. `files.exclude` always applies. |
 | `pluto.index.maxFiles` | `5000` | Maximum number of files to index. |
@@ -63,6 +66,16 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.highlight.applyColors` | `false` | Apply the colors below to Pluto files (off = the colors of your theme). |
 | `pluto.highlight.colors` | `{}` | Color and style per kind of token, see [Highlight colors](#highlight-colors). |
 | `pluto.highlight.tableBracketColors` | `[]` | Colors of the braces `{ }` of tables by nesting depth. |
+| `pluto.lua.checkSyntax` | `true` | Check `.lua` files for syntax errors with a Lua interpreter (needs `pluto.lua.enable`). |
+| `pluto.lua.compilerPath` | `""` | Path to `luac` / `lua` / `luajit`. Empty = search `bin/lua`, `tools/lua`... of the workspace, then the `PATH`. |
+| `pluto.json.enable` | `true` | Check the paths of files in JSON files. |
+| `pluto.json.files` | `["**/info.json"]` | Glob patterns of the JSON files to check. |
+| `pluto.json.extensions` | `[".pluto", ".lua"]` | Extensions of the files whose paths are checked. |
+| `pluto.json.checkAllPaths` | `false` | Also check paths of files with any extension found in the project folder. |
+| `pluto.json.severity` | `warning` | `warning`, `error` or `information`. |
+| `pluto.json.notifyNoFolder` | `true` | Tell once per window that without an open folder paths are checked only next to the JSON file. |
+| `pluto.format.multilineParams` | `true` | Smart formatting of multi-line parameter lists of functions. |
+| `pluto.format.multilineTables` | `true` | Smart formatting of multi-line tables. |
 | `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
@@ -128,6 +141,72 @@ A wrong value is never applied: the color of your theme stays, and the extension
 The extension keeps these colors as rules named `Pluto: ...` in `editor.tokenColorCustomizations` of your user settings. Your own rules there are left alone, and turning `pluto.highlight.applyColors` off removes ours. The rules only match Pluto scopes (`....pluto`), so other languages are not affected.
 
 [demo-highlight.pluto](demo-highlight.pluto) in this repository contains every kind of token to look at while tuning the colors. Nullable types (`int?`) have their own settings, `pluto.highlight.nullableTypeColor` and `pluto.highlight.nullableTypeLightColor`, because they are colored on top of the theme.
+
+### JSON path checks
+
+Strings in a JSON file that look like the path of a file are checked. By default this is done for module manifests (`info.json`) and only for `.pluto` and `.lua` files, so nothing unexpected appears in other JSON files. A string is taken for a path when it ends with one of the extensions, is not a URL or a pattern (`*`, `{}`), and is not a sentence.
+
+```jsonc
+{
+    "id": "garage",
+    "entry": "main.pluto",
+    "helper": "old/util.lua"          // warning: File 'old/util.lua' not found. Did you mean '../lib/util.lua'?
+}
+```
+
+- **Where it looks:** a path is valid when the file exists next to the JSON file or relative to a workspace folder (or when it is absolute). Files excluded by `.gitignore`, `.plutoignore`, `.luaignore` or `files.exclude` still count as existing when they are on the disk.
+- **Moved files:** when the file is missing but a file with that name exists elsewhere in the project, the warning names it, and a quick fix (`Ctrl+.`) replaces the path with the one relative to the JSON file. The nearest file, and the one whose path ends like the written one, comes first.
+- **Which JSON files:** `pluto.json.files` is a list of glob patterns relative to the workspace folder, e.g. `["**/info.json", "config/*.json"]`, or `["**/*.json"]` for all of them. The `id`, `entry`/`main` and `dependencies` of a module manifest (`info.json`) are always checked.
+- **Other files:** `pluto.json.extensions` lists the extensions that are checked. With `pluto.json.checkAllPaths` every extension found among the files of the project folder (`.png`, `.txt`, ...) is checked too; for this the names of all files are read once, without the ignored ones.
+- **No folder open:** without a project folder (a single JSON file) only the neighbourhood of the file on the disk is searched, and there are no "did you mean" hints. The extension tells it once per window with a notification (turn it off with `pluto.json.notifyNoFolder`).
+
+### Ignore files
+
+The files that match `.gitignore`, `.plutoignore` or `.luaignore` (all in the workspace root, `.gitignore` syntax; the list is `pluto.workspace.ignoreFiles`) are not indexed, so they get no completion or navigation. `pluto.workspace.exclude` adds glob patterns, and `files.exclude` and `search.exclude` apply as well.
+
+### Lua interpreter
+
+While `pluto.lua.enable` is on, `.lua` files are checked for syntax errors by a Lua interpreter, in the same way `plutoc` checks `.pluto` files. The interpreter is `pluto.lua.compilerPath`, else `luac`, `lua` or `luajit` in `bin/lua`, `tools/lua`, `lua5.4` and similar folders of the workspace (`luac`, which only parses, is preferred; the newest version wins), else the `PATH`. With `lua` or `luajit` the code is compiled with `load` and never run. A workspace has to be trusted for a program from it to be started. Turn this off with `pluto.lua.checkSyntax`.
+
+### Multi-line parameters and tables
+
+For `.pluto` and `.lua` files (the Lua files while `pluto.lua.enable` is on). It only works on a list that is already written on several lines, i.e. whose closing `)` or `}` is on a line of its own below the opening one, and does nothing for one-line lists.
+
+**The first element moves to its own line.** If you start typing the first parameter or field right after the opening bracket, it moves to the next line, one level deeper than the line with the bracket:
+
+```pluto
+function name(test: bool = false      -- typed on the line of `(`, `)` is on a line below
+)
+
+-- becomes
+function name(
+    test: bool = false
+)
+
+local cfg = { enabled = true          -- the same for tables
+}
+
+-- becomes
+local cfg = {
+    enabled = true
+}
+```
+
+**Enter adds the comma.** Press Enter at the end of a parameter or field inside such a list and the missing comma is put at the end of it (before a `-- comment`, if there is one), and the cursor goes to a new line with the same indentation. A comma (or a `;` in a table) that is already there is not doubled, and Enter on an empty line is just a line break:
+
+```pluto
+function name(
+    test: bool = false|          -- Enter
+)
+
+-- becomes
+function name(
+    test: bool = false,
+    |
+)
+```
+
+It is careful not to break your code: strings and comments are skipped; nested tables and lists work on their own level; a line that ends with an opening bracket or an unfinished expression (`a = 1 +`) gets no comma; `...` stays the last parameter without a comma; statements inside a function in a table, the body of a lambda (`-> int { ... }`) and the arguments of a call are left alone; and the automatic `end` keeps working. Both can be turned off, `pluto.format.multilineParams` for parameter lists and `pluto.format.multilineTables` for tables.
 
 ### Commands
 

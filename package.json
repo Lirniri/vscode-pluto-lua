@@ -10,7 +10,7 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.23.0",
+	"version": "0.25.0",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -110,6 +110,53 @@
 					"default": true,
 					"markdownDescription": "%pluto.lua.enable.markdownDescription%"
 				},
+				"pluto.json.enable": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.json.enable.markdownDescription%"
+				},
+				"pluto.json.files": {
+					"type": "array",
+					"items": { "type": "string" },
+					"default": ["**/info.json"],
+					"scope": "resource",
+					"markdownDescription": "%pluto.json.files.markdownDescription%"
+				},
+				"pluto.json.extensions": {
+					"type": "array",
+					"items": { "type": "string" },
+					"default": [".pluto", ".lua"],
+					"scope": "resource",
+					"markdownDescription": "%pluto.json.extensions.markdownDescription%"
+				},
+				"pluto.json.checkAllPaths": {
+					"type": "boolean",
+					"default": false,
+					"scope": "resource",
+					"markdownDescription": "%pluto.json.checkAllPaths.markdownDescription%"
+				},
+				"pluto.json.severity": {
+					"type": "string",
+					"enum": ["warning", "error", "information"],
+					"default": "warning",
+					"markdownDescription": "%pluto.json.severity.markdownDescription%"
+				},
+				"pluto.json.notifyNoFolder": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.json.notifyNoFolder.markdownDescription%"
+				},
+				"pluto.lua.checkSyntax": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.lua.checkSyntax.markdownDescription%"
+				},
+				"pluto.lua.compilerPath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine-overridable",
+					"markdownDescription": "%pluto.lua.compilerPath.markdownDescription%"
+				},
 				"pluto.lua.indexFiles": {
 					"type": "boolean",
 					"default": true,
@@ -149,7 +196,8 @@
 					},
 					"default": [
 						".gitignore",
-						".plutoignore"
+						".plutoignore",
+						".luaignore"
 					],
 					"scope": "resource",
 					"markdownDescription": "%pluto.workspace.ignoreFiles.markdownDescription%"
@@ -429,6 +477,18 @@
 						}
 					},
 					"markdownDescription": "%pluto.highlight.tableBracketColors.markdownDescription%"
+				},
+				"pluto.format.multilineParams": {
+					"type": "boolean",
+					"default": true,
+					"scope": "resource",
+					"markdownDescription": "%pluto.format.multilineParams.markdownDescription%"
+				},
+				"pluto.format.multilineTables": {
+					"type": "boolean",
+					"default": true,
+					"scope": "resource",
+					"markdownDescription": "%pluto.format.multilineTables.markdownDescription%"
 				},
 				"pluto.autoCloseBlocks": {
 					"type": "boolean",

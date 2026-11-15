@@ -28,7 +28,7 @@ class WorkspaceFilter
 	{
 		const config = vscode.workspace.getConfiguration("pluto.workspace", folder ? folder.uri : undefined);
 		const names = new Set();
-		const configured = config.get("ignoreFiles", [".gitignore", ".plutoignore"]);
+		const configured = config.get("ignoreFiles", [".gitignore", ".plutoignore", ".luaignore"]);
 		for (const name of Array.isArray(configured) ? configured : [])
 		{
 			if (typeof name == "string" && name.trim())

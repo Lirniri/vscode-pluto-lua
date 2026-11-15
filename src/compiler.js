@@ -85,6 +85,23 @@ function isCompilerName(name)
 }
 
 /**
+ * Whether a file name looks like a Lua interpreter/compiler binary: `lua.exe`, `luac.exe`, `lua54.exe`,
+ * `lua5.4`, `luajit.exe`. (`pluto` binaries are `isCompilerName`.)
+ */
+function isLuaName(name)
+{
+	if (!/^(?:luac?|luajit)(?:[-_.]?\d[\d.]*)?(?:$|[-_.])/i.test(name) || NON_EXECUTABLE_EXT.test(name))
+	{
+		return false;
+	}
+	if (IS_WINDOWS)
+	{
+		return /\.exe$/i.test(name);
+	}
+	return true;
+}
+
+/**
  * Parses the last version number found in a path, e.g. "pluto/0.10.1/plutoc.exe" → [0, 10, 1].
  */
 function versionOf(p)
@@ -112,16 +129,22 @@ function normalize(p)
 }
 
 const TOP_DIRS = /^(bin|tools|vendor|deps|third_party|thirdparty|external|libs?|sdk|\.pluto|pluto.*)$/i;
+const TOP_DIRS_LUA = /^(bin|tools|vendor|deps|third_party|thirdparty|external|libs?|sdk|\.lua|lua.*)$/i;
 const SKIP_DIRS = /^(node_modules|\.git|\.vs|\.vscode|\.idea|obj|__pycache__)$/i;
 
 /**
  * Searches a workspace folder for a local Pluto compiler, e.g. `pluto/0.10.1/plutoc.exe`,
- * `tools/pluto/pluto.exe` or `bin/pluto`. Only well-known folders are searched, 4 levels deep at most.
+ * `tools/pluto/pluto.exe` or `bin/pluto`; with `family` "lua" for a Lua interpreter, e.g. `bin/lua/lua.exe`
+ * or `tools/lua5.4/luac.exe`. Only well-known folders are searched, 4 levels deep at most.
  * @param {string} root
+ * @param {"pluto"|"lua"} [family]
  * @returns {{ path: string, version: number[], mtime: number }[]}
  */
-function findLocalCompilers(root)
+function findLocalCompilers(root, family)
 {
+	const isLua = family == "lua";
+	const isBinary = isLua ? isLuaName : isCompilerName;
+	const topDirs = isLua ? TOP_DIRS_LUA : TOP_DIRS;
 	const found = [];
 	let budget = 2000; // directory entries
 	const walk = function (dir, depth, inside)
@@ -144,12 +167,12 @@ function findLocalCompilers(root)
 			const full = path.join(dir, entry.name);
 			if (entry.isDirectory())
 			{
-				if (depth < 4 && !SKIP_DIRS.test(entry.name) && (inside || TOP_DIRS.test(entry.name)))
+				if (depth < 4 && !SKIP_DIRS.test(entry.name) && (inside || topDirs.test(entry.name)))
 				{
 					walk(full, depth + 1, true);
 				}
 			}
-			else if ((entry.isFile() || entry.isSymbolicLink()) && isCompilerName(entry.name) && isExecutableFile(full))
+			else if ((entry.isFile() || entry.isSymbolicLink()) && isBinary(entry.name) && isExecutableFile(full))
 			{
 				let mtime = 0;
 				try
@@ -167,22 +190,29 @@ function findLocalCompilers(root)
 
 /**
  * Picks the best compiler: `plutoc` (has a parse-only mode) over `pluto`, then the newest version, then the newest file.
+ * For Lua (`family` "lua"): `luac` (parse-only) over `lua` over `luajit`.
+ * @param {{ path: string, version: number[], mtime: number }[]} list
+ * @param {"pluto"|"lua"} [family]
  */
-function pickBest(list)
+function pickBest(list, family)
 {
-	const score = (c) => /^plutoc/i.test(path.basename(c.path)) ? 1 : 0;
+	const score = family == "lua"
+		? (c) => { const n = path.basename(c.path); return /^luac/i.test(n) ? 3 : /^lua(?!jit)/i.test(n) ? 2 : 1; }
+		: (c) => /^plutoc/i.test(path.basename(c.path)) ? 1 : 0;
 	return list.slice().sort((a, b) => (score(b) - score(a)) || compareVersions(b.version, a.version) || (b.mtime - a.mtime))[0] || null;
 }
 
 /**
- * Looks for `plutoc` / `pluto` on the PATH.
+ * Looks for `plutoc` / `pluto` (with `family` "lua": `luac` / `lua` / `luajit`) on the PATH.
+ * @param {string} [envPath]
+ * @param {"pluto"|"lua"} [family]
  * @returns {string|null}
  */
-function findOnPath(envPath)
+function findOnPath(envPath, family)
 {
 	const dirs = (envPath !== undefined ? envPath : process.env.PATH || process.env.Path || "").split(path.delimiter).filter(Boolean);
 	const exts = IS_WINDOWS ? [".exe", ".com"] : [""];
-	for (const name of ["plutoc", "pluto"])
+	for (const name of family == "lua" ? ["luac", "lua", "luajit"] : ["plutoc", "pluto"])
 	{
 		for (const dir of dirs)
 		{
@@ -204,7 +234,8 @@ function findOnPath(envPath)
  * 1. `configured` (pluto.diagnostics.compilerPath), if set and it exists;
  * 2. a compiler inside of one of the workspace folders (only if `allowWorkspace`);
  * 3. `plutoc` / `pluto` on the PATH.
- * @param {{ configured?: string, workspaceFolders: string[], allowWorkspace?: boolean, envPath?: string }} options
+ * @param {{ configured?: string, workspaceFolders: string[], allowWorkspace?: boolean, envPath?: string, family?: "pluto"|"lua" }} options
+ *   With `family` "lua" a Lua interpreter is looked for instead (`bin/lua/lua.exe`, `luac` on the PATH, ...).
  * @returns {{ path: string|null, source: "setting"|"workspace"|"path"|null, problem?: string }}
  */
 function findCompiler(options)
@@ -241,15 +272,15 @@ function findCompiler(options)
 		const all = [];
 		for (const folder of options.workspaceFolders)
 		{
-			all.push(...findLocalCompilers(folder));
+			all.push(...findLocalCompilers(folder, options.family));
 		}
-		const best = pickBest(all);
+		const best = pickBest(all, options.family);
 		if (best)
 		{
 			return { path: best.path, source: "workspace", problem };
 		}
 	}
-	const onPath = findOnPath(options.envPath);
+	const onPath = findOnPath(options.envPath, options.family);
 	if (onPath)
 	{
 		return { path: onPath, source: "path", problem };
@@ -260,13 +291,22 @@ function findCompiler(options)
 // Compiles stdin with `load` (which never runs the chunk) and reports the error, for interpreters without a parse-only flag.
 const LOAD_ONLY_SCRIPT = "local s=io.read('a') local f,e=load(s,'=stdin') if not f then io.stderr:write(tostring(e),'\\n') os.exit(1) end";
 
+// The same for Lua 5.1 - 5.4 and LuaJIT (`loadstring` before 5.2, `io.read("*a")` is understood by all).
+const LUA_LOAD_ONLY_SCRIPT = "local s=io.read('*a') local f,e=(loadstring or load)(s,'=stdin') if not f then io.stderr:write(tostring(e),'\\n') os.exit(1) end";
+
 /**
  * Command-line arguments that make the compiler only parse the code from stdin.
- * `plutoc -p -` parses without writing output; the `pluto` interpreter loads the chunk without calling it.
+ * `plutoc -p -` and `luac -p -` parse without writing output; the `pluto` / `lua` interpreters load the chunk
+ * without calling it.
  */
 function checkArgs(compilerPath)
 {
-	return /^plutoc/i.test(path.basename(compilerPath)) ? ["-p", "-"] : ["-e", LOAD_ONLY_SCRIPT];
+	const name = path.basename(compilerPath);
+	if (/^plutoc/i.test(name) || /^luac/i.test(name))
+	{
+		return ["-p", "-"];
+	}
+	return ["-e", /^(?:lua|luajit)/i.test(name) ? LUA_LOAD_ONLY_SCRIPT : LOAD_ONLY_SCRIPT];
 }
 
 /**
@@ -466,6 +506,7 @@ module.exports = {
 	versionOf,
 	compareVersions,
 	isCompilerName,
+	isLuaName,
 	checkArgs,
 	runCheck,
 	parseCompilerOutput,

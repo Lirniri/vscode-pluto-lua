@@ -13,6 +13,7 @@ const { createProviders, lineContext, SHOW_DECLARATIONS_COMMAND, PEEK_CODE_COMMA
 const { WorkspaceFilter } = require("./workspaceFilter");
 const { registerDiagnostics } = require("./diagnostics");
 const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEditor");
+const { registerMultilineFormat } = require("./multilineEditor");
 const { buildRules, mergeRules, findProblems, CATEGORIES } = require("./highlightColors");
 const { t, resolveLanguage, setLanguage } = require("./i18n");
 
@@ -648,6 +649,7 @@ function activate(context)
 		vscode.languages.registerWorkspaceSymbolProvider(providers.workspaceSymbolProvider)
 	);
 	registerAutoClose(context, service);
+	registerMultilineFormat(context, service);
 	registerTypeAutoTrigger(context);
 	registerNullableHighlight(context);
 	applyHighlightColors().catch(() => { });

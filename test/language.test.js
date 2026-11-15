@@ -2434,3 +2434,348 @@ test("highlight colors: darkColor and lightColor of the object form follow the k
 		}
 	}
 });
+
+test("compiler: a Lua interpreter is found in bin/lua of the workspace, else on the PATH", function ()
+{
+	const os = require("os");
+	const exe = process.platform == "win32" ? ".exe" : "";
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "lua-ws-"));
+	const bin = fs.mkdtempSync(path.join(os.tmpdir(), "lua-path-"));
+	const touch = function (p)
+	{
+		fs.mkdirSync(path.dirname(p), { recursive: true });
+		fs.writeFileSync(p, "");
+		fs.chmodSync(p, 0o755);
+		return p;
+	};
+	try
+	{
+		for (const name of ["lua", "luac", "lua54", "lua5.4", "luac5.4", "luajit", "lua-5.4"])
+		{
+			assert(compiler.isLuaName(name + exe), name + exe);
+		}
+		for (const name of ["pluto", "plutoc", "lua.dll", "luarocks", "lualib", "script.lua", "lua.h", "alua"])
+		{
+			assert(!compiler.isLuaName(name + (exe && !/\./.test(name) ? exe : "")), name);
+		}
+		const lua = { workspaceFolders: [root], envPath: "", family: "lua" };
+		assert.deepStrictEqual(compiler.findCompiler(lua), { path: null, source: null, problem: undefined });
+		// A Pluto compiler is never taken for a Lua interpreter, and the other way round.
+		touch(path.join(root, "bin", "pluto", "plutoc" + exe));
+		assert.strictEqual(compiler.findCompiler(lua).path, null);
+		assert.strictEqual(compiler.findCompiler({ workspaceFolders: [root], envPath: "" }).path.includes("plutoc"), true);
+		// bin/lua: luac (parse-only) is preferred over lua; the newest version wins.
+		touch(path.join(root, "bin", "lua", "lua" + exe));
+		const luac = touch(path.join(root, "bin", "lua", "luac" + exe));
+		const found = compiler.findCompiler(lua);
+		assert.deepStrictEqual([found.path, found.source], [luac, "workspace"]);
+		touch(path.join(root, "tools", "lua5.1", "luac" + exe));
+		const newer = touch(path.join(root, "tools", "lua5.4", "luac" + exe));
+		assert.strictEqual(compiler.findCompiler(lua).path, newer);
+		touch(path.join(root, "src", "luac" + exe)); // not a known folder
+		// Only `lua` in the folder: used with a script that only compiles.
+		const only = fs.mkdtempSync(path.join(os.tmpdir(), "lua-only-"));
+		try
+		{
+			const interpreter = touch(path.join(only, "bin", "lua", "lua" + exe));
+			assert.strictEqual(compiler.findCompiler({ workspaceFolders: [only], envPath: "", family: "lua" }).path, interpreter);
+			assert.strictEqual(compiler.checkArgs(interpreter)[0], "-e");
+			assert(compiler.checkArgs(interpreter)[1].includes("loadstring or load"));
+		}
+		finally
+		{
+			fs.rmSync(only, { recursive: true, force: true });
+		}
+		assert.deepStrictEqual(compiler.checkArgs(luac), ["-p", "-"]);
+		// The PATH is the last resort; a configured path comes first.
+		const onPath = touch(path.join(bin, "luac" + exe));
+		assert.deepStrictEqual(compiler.findCompiler({ workspaceFolders: [root], envPath: bin, family: "lua", allowWorkspace: false }), { path: onPath, source: "path", problem: undefined });
+		const custom = touch(path.join(root, "custom", "my-lua" + exe));
+		const fromSetting = compiler.findCompiler({ configured: "${workspaceFolder}/custom/my-lua" + exe, workspaceFolders: [root], envPath: bin, family: "lua" });
+		assert.deepStrictEqual([fromSetting.path, fromSetting.source], [custom, "setting"]);
+	}
+	finally
+	{
+		fs.rmSync(root, { recursive: true, force: true });
+		fs.rmSync(bin, { recursive: true, force: true });
+	}
+});
+
+testAsync("compiler: a real Lua interpreter checks .lua code without running it (skipped when not installed)", async function ()
+{
+	const found = compiler.findOnPath(undefined, "lua");
+	if (!found)
+	{
+		return;
+	}
+	const bad = await compiler.runCheck(found, "os.exit(3)\nlocal x = (\n").promise;
+	const problems = compiler.parseCompilerOutput(bad.output, ["os.exit(3)", "local x = ("]);
+	assert.notStrictEqual(bad.code, 3, "the code must not run");
+	assert.strictEqual(problems.length, 1, bad.output);
+	assert.strictEqual(problems[0].severity, "error");
+	assert(problems[0].line >= 1, "the error is after the first line (Lua reports the end of the file)");
+	const good = await compiler.runCheck(found, "os.exit(3)\n").promise;
+	assert.strictEqual(good.code, 0, good.output);
+	assert.deepStrictEqual(compiler.parseCompilerOutput(good.output, []), []);
+	// The same with the `lua` interpreter (luac is preferred when both exist): compiled, never run.
+	const dir = path.dirname(found);
+	const lua = [path.join(dir, "lua" + (process.platform == "win32" ? ".exe" : ""))].find(p => fs.existsSync(p));
+	if (lua)
+	{
+		const viaLua = await compiler.runCheck(lua, "os.exit(3)\nlocal x = (\n").promise;
+		assert.notStrictEqual(viaLua.code, 3, "the code must not run: " + viaLua.output);
+		const parsed = compiler.parseCompilerOutput(viaLua.output, ["os.exit(3)", "local x = ("]);
+		assert.strictEqual(parsed.length, 1, viaLua.output);
+		assert(parsed[0].line >= 1);
+		assert.strictEqual((await compiler.runCheck(lua, "os.exit(3)\n").promise).code, 0);
+	}
+});
+
+test("json paths: the strings of a JSON text that look like paths of files", function ()
+{
+	const { scanStrings, looksLikePath, pathCandidates, suggestionsFor, indexByName } = require("../src/jsonPaths");
+	const text = '{\n  // comment "not.lua"\n  "entry": "src/main.pluto",\n  "files": ["a.lua", { "x": "b/c.lua" }],\n  /* "also.lua" */\n  "name": "a \\"quoted\\" lib.lua", "n": 5, "ok": true, "empty": ""\n}';
+	const strings = scanStrings(text);
+	assert.deepStrictEqual(strings.map(s => [s.value, s.key]), [
+		["src/main.pluto", "entry"], ["a.lua", "files"], ["b/c.lua", "x"], ['a "quoted" lib.lua', "name"], ["", "empty"],
+	]);
+	assert.strictEqual(text.slice(strings[0].start, strings[0].end), '"src/main.pluto"');
+	// Keys are never paths, and an unfinished string does not break the scan.
+	assert.deepStrictEqual(scanStrings('{ "a.lua": 1, "b": "c.lua"').map(s => s.value), ["c.lua"]);
+	assert.deepStrictEqual(scanStrings('{ "b": "unfinished.lua').map(s => s.value), []);
+	const ext = new Set([".pluto", ".lua"]);
+	for (const yes of ["a.lua", "src/main.pluto", "./x/y.LUA", "..\\up\\z.lua", "C:/dir/f.lua", "dir with space/f.lua"])
+	{
+		assert(looksLikePath(yes, ext), yes);
+	}
+	for (const no of ["", "a.txt", "lua", "http://x.com/a.lua", "file:///a.lua", "src/*.lua", "**/*.pluto", "see foo.lua", " a.lua", "a.lua\n", "x/{a,b}.lua", "^a\\.lua$", "dir/.lua.bak", "a/b/"])
+	{
+		assert(!looksLikePath(no, ext), JSON.stringify(no));
+	}
+	assert(looksLikePath("img/logo.png", new Set([".png"])));
+	// Where a path may point: next to the JSON file and in each workspace folder.
+	assert.deepStrictEqual(pathCandidates("src/a.lua", "/ws/mod", ["/ws", "/other"]), ["/ws/mod/src/a.lua", "/ws/src/a.lua", "/other/src/a.lua"]);
+	assert.deepStrictEqual(pathCandidates("../a.lua", "/ws/mod", ["/ws"]), ["/ws/a.lua", "/a.lua"]);
+	assert.deepStrictEqual(pathCandidates("C:\\x\\a.lua", "/ws", ["/ws"]), ["C:/x/a.lua"]);
+	// Moved files, the one with the same ending of the path and the nearest one first.
+	const byName = indexByName(["/ws/lib/util.lua", "/ws/mod/helpers/util.lua", "/ws/other/deep/er/util.lua", "/ws/readme.md"]);
+	assert.deepStrictEqual(suggestionsFor("util.lua", "/ws/mod", byName), ["helpers/util.lua", "../lib/util.lua", "../other/deep/er/util.lua"]);
+	assert.deepStrictEqual(suggestionsFor("old/lib/util.lua", "/ws/mod", byName)[0], "../lib/util.lua");
+	assert.deepStrictEqual(suggestionsFor("nothing.lua", "/ws/mod", byName), []);
+});
+
+test("json paths: missing files are reported, moved ones with a suggestion", function ()
+{
+	const { lintJsonPaths } = require("../src/jsonPaths");
+	const existing = new Set(["/ws/mod/main.pluto", "/ws/lib/util.lua", "/ws/mod/data"]);
+	const ctx = {
+		exists: (p) => existing.has(p),
+		roots: ["/ws"],
+		files: ["/ws/mod/main.pluto", "/ws/lib/util.lua", "/ws/mod/sub/gone.lua"],
+		extensions: new Set([".pluto", ".lua"]),
+	};
+	const text = [
+		"{",
+		'  "entry": "main.pluto",',                 // 1: next to the JSON file
+		'  "util": "lib/util.lua",',                // 2: relative to the workspace folder
+		'  "moved": "old/util.lua",',               // 3: not there, but util.lua exists elsewhere
+		'  "missing": "nowhere/none.lua",',         // 4
+		'  "dir": "data",',                          // 5: no known extension, not checked
+		'  "url": "https://example.com/a.lua",',    // 6
+		'  "again": "nowhere/none.lua"',            // 7: the same text, reported again
+		"}",
+	].join("\n");
+	const problems = lintJsonPaths(text, "/ws/mod/info.json", ctx);
+	assert.deepStrictEqual(problems.map(p => [p.line, p.code, p.severity, p.suggestions]), [
+		[3, "json-path", "warning", ["../lib/util.lua"]],
+		[4, "json-path", "warning", []],
+		[7, "json-path", "warning", []],
+	]);
+	assert(problems[0].message.includes("old/util.lua") && problems[0].message.includes("Did you mean '../lib/util.lua'?"), problems[0].message);
+	assert(problems[1].message.includes("nowhere/none.lua") && problems[1].message.includes("workspace folder"), problems[1].message);
+	assert.strictEqual(text.slice(problems[1].start, problems[1].end), '"nowhere/none.lua"');
+	assert.deepStrictEqual([problems[1].col, problems[1].endCol], [13, 31]);
+	// Properties checked elsewhere are skipped; the severity is a setting.
+	const skipped = lintJsonPaths(text, "/ws/mod/info.json", Object.assign({}, ctx, { skipKeys: new Set(["moved", "missing", "again"]), severity: "error" }));
+	assert.deepStrictEqual(skipped, []);
+	assert.strictEqual(lintJsonPaths(text, "/ws/mod/info.json", Object.assign({}, ctx, { severity: "information" }))[0].severity, "information");
+	// Other extensions only when asked for; without a folder nothing else is searched.
+	const png = '{ "logo": "img/logo.png", "ok": "main.pluto" }';
+	assert.deepStrictEqual(lintJsonPaths(png, "/ws/mod/x.json", ctx), []);
+	assert.strictEqual(lintJsonPaths(png, "/ws/mod/x.json", Object.assign({}, ctx, { extensions: new Set([".png", ".pluto"]), files: ["/ws/assets/logo.png"] }))[0].suggestions[0], "../assets/logo.png");
+	const noFolder = lintJsonPaths('{ "a": "elsewhere/a.lua" }', "/tmp/x.json", { exists: () => false, roots: [], files: [], extensions: new Set([".lua"]) });
+	assert.strictEqual(noFolder.length, 1);
+	assert(noFolder[0].message.includes("next to this JSON file") && !noFolder[0].message.includes("workspace"), noFolder[0].message);
+	// Russian messages.
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		assert(lintJsonPaths(text, "/ws/mod/info.json", ctx)[0].message.includes("Возможно, вы имели в виду '../lib/util.lua'"));
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+});
+
+test("workspace filter: .luaignore is an ignore file by default", function ()
+{
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.deepStrictEqual(pkg.contributes.configuration.properties["pluto.workspace.ignoreFiles"].default, [".gitignore", ".plutoignore", ".luaignore"]);
+	const wf = fs.readFileSync(path.join(__dirname, "..", "src", "workspaceFilter.js"), "utf8");
+	assert(wf.includes('[".gitignore", ".plutoignore", ".luaignore"]'));
+	// All settings of the JSON checks are declared with a default.
+	const props = pkg.contributes.configuration.properties;
+	assert.deepStrictEqual(props["pluto.json.files"].default, ["**/info.json"]);
+	assert.deepStrictEqual(props["pluto.json.extensions"].default, [".pluto", ".lua"]);
+	assert.strictEqual(props["pluto.json.checkAllPaths"].default, false);
+	assert.strictEqual(props["pluto.json.notifyNoFolder"].default, true);
+	assert.strictEqual(props["pluto.lua.checkSyntax"].default, true);
+});
+
+const multiline = require("../src/multilineFormat");
+const ML = { params: true, tables: true };
+
+/** Applies a plan to a text, like the editor does, and puts `|` where the cursor goes. */
+function applyPlan(text, plan)
+{
+	assert(plan, "a plan was expected");
+	const lines = text.split("\n");
+	const offsetOf = (line, col) => lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + col;
+	let out = text;
+	// Later edits first, so that earlier offsets stay valid.
+	for (const e of plan.edits.slice().sort((a, b) => offsetOf(b.line, b.col) - offsetOf(a.line, a.col)))
+	{
+		out = out.slice(0, offsetOf(e.line, e.col)) + e.text + out.slice(offsetOf(e.endLine, e.endCol));
+	}
+	const after = out.split("\n");
+	after[plan.cursor.line] = after[plan.cursor.line].slice(0, plan.cursor.col) + "|" + after[plan.cursor.line].slice(plan.cursor.col);
+	return after.join("\n");
+}
+
+/** What typing at the `|` of a text does, with `|` as the cursor. */
+function typeFirst(textWithCursor, options)
+{
+	const offset = textWithCursor.indexOf("|");
+	const text = textWithCursor.replace("|", "");
+	const before = text.slice(0, offset).split("\n");
+	return multiline.planFirstElement(text, before.length - 1, before[before.length - 1].length, options || ML, "    ", "\n");
+}
+
+/** What Enter at the `|` does: the text must already contain the new line below the cursor line. */
+function enterAt(textWithCursor, options)
+{
+	const offset = textWithCursor.indexOf("|");
+	const text = textWithCursor.replace("|", "");
+	const line = text.slice(0, offset).split("\n").length - 1;
+	return multiline.planEnter(text, line, options || ML);
+}
+
+test("multiline format: the first element typed after ( or { goes to its own line", function ()
+{
+	const first = (text) => applyPlan(text.replace("|", ""), typeFirst(text));
+	assert.strictEqual(first("function name(test: bool = false|\n)\nend"), "function name(\n    test: bool = false|\n)\nend");
+	assert.strictEqual(first("local cfg = { enabled = true|\n}"), "local cfg = {\n    enabled = true|\n}");
+	// The first typed character is enough, and the rest is typed on the new line afterwards.
+	assert.strictEqual(first("function name(t|\n)"), "function name(\n    t|\n)");
+	assert.strictEqual(first("local t = {e|\n}"), "local t = {\n    e|\n}");
+	// Indentation: one level below the line with the bracket, whatever kind of function it is.
+	assert.strictEqual(first("  local function f(a|\n  )"), "  local function f(\n      a|\n  )");
+	assert.strictEqual(first("local f = function(a|\n)\nend"), "local f = function(\n    a|\n)\nend");
+	assert.strictEqual(first("function obj.sub:method(a|\n)\nend"), "function obj.sub:method(\n    a|\n)\nend");
+	assert.strictEqual(first("class A\n  function m(a|\n  )\n  end\nend"), "class A\n  function m(\n      a|\n  )\n  end\nend");
+	assert.strictEqual(first("local c = {\n    inner = { a = 1|\n    }\n}"), "local c = {\n    inner = {\n        a = 1|\n    }\n}");
+	// What the editor closes on its own stays with the element (quotes), and the cursor keeps its place in it.
+	assert.strictEqual(first('local c = { name = "|"\n}'), 'local c = {\n    name = "|"\n}');
+	// A tab and CRLF are taken from the caller.
+	const tab = multiline.planFirstElement("function f(a\n)", 0, 12, ML, "\t", "\r\n");
+	assert.strictEqual(tab.edits[0].text, "\r\n\ta");
+	// Not for one-line lists, calls, lambdas, types, or when something is inside already.
+	for (const text of [
+		"function name(a, b|)", "local t = { 1, 2| }", "function name(a|)\n", "foo(a|\n)",
+		"local f = |x| -> int { return x|\n}",
+		"function name(a|\n    b\n)", "local t = {\n    a = 1\n    b|\n}", "local t = { a|\n    , b\n}",
+		"function name(\n    a|\n)", "local t = {\n    a|\n}", "local t = {  |\n}", "function name(|\n)",
+		"local x: function(a|\n)", "local c = [a|\n]",
+	])
+	{
+		assert.strictEqual(typeFirst(text), null, text);
+	}
+	// A closer typed first is not an element, and the cursor must be at the end of what was typed.
+	assert.strictEqual(typeFirst("function f()|\n)"), null);
+	assert.strictEqual(multiline.planFirstElement("function f(abc\n)", 0, 13, ML, "    ", "\n"), null, "the cursor is not at the end");
+	// The settings switch each kind off.
+	assert.strictEqual(typeFirst("function name(a|\n)", { params: false, tables: true }), null);
+	assert(typeFirst("function name(a|\n)", { params: true, tables: false }));
+	assert.strictEqual(typeFirst("local t = { a|\n}", { params: true, tables: false }), null);
+	assert(typeFirst("local t = { a|\n}", { params: false, tables: true }));
+});
+
+test("multiline format: Enter after an element adds the comma and keeps the indentation", function ()
+{
+	const enter = (text) => applyPlan(text.replace("|", ""), enterAt(text));
+	assert.strictEqual(enter("function name(\n    test: bool = false|\n    \n)\nend"), "function name(\n    test: bool = false,\n    |\n)\nend");
+	assert.strictEqual(enter("local cfg = {\n    enabled = true|\n    \n}"), "local cfg = {\n    enabled = true,\n    |\n}");
+	// The comma goes in front of a comment, and a `--` in a string is no comment.
+	assert.strictEqual(enter("local c = {\n    a = 1 -- first |\n    \n}"), "local c = {\n    a = 1, -- first \n    |\n}");
+	assert.strictEqual(enter('local c = {\n    a = "x -- y"|\n    \n}'), 'local c = {\n    a = "x -- y",\n    |\n}');
+	// An existing comma (or `;` in a table) is not doubled; only the cursor moves.
+	for (const text of ["local c = {\n    a = 1,|\n    \n}", "local c = {\n    a = 1;|\n    \n}", "local c = {\n    a = 1, -- c|\n    \n}", "function f(\n    a,|\n    \n)\nend"])
+	{
+		const plan = enterAt(text);
+		assert.deepStrictEqual(plan.edits, [], text);
+		assert.deepStrictEqual(plan.cursor, { line: text.slice(0, text.indexOf("|")).split("\n").length, col: 4 });
+	}
+	// `;` is no separator of parameters.
+	assert.strictEqual(enterAt("function f(\n    a;|\n    \n)\nend").edits[0].text, ",");
+	// Indentation of the new line follows the element, also when the editor did not indent it.
+	assert.strictEqual(applyPlan("local c = {\n    a = 1\n\n}", enterAt("local c = {\n    a = 1|\n\n}")), "local c = {\n    a = 1,\n    |\n}");
+	assert.strictEqual(applyPlan("local c = {\n\t\ta = 1\n\t\t\t\n}", enterAt("local c = {\n\t\ta = 1|\n\t\t\t\n}")), "local c = {\n\t\ta = 1,\n\t\t|\n}");
+	// Nested tables work on their own level.
+	assert.strictEqual(enter("local c = {\n    inner = {\n        a = 1|\n        \n    }\n}"), "local c = {\n    inner = {\n        a = 1,\n        |\n    }\n}");
+	assert.strictEqual(enter("local c = {\n    inner = {\n        a = 1,\n    }|\n    \n}"), "local c = {\n    inner = {\n        a = 1,\n    },\n    |\n}");
+	// A function in a table: the element after `end` gets a comma, its statements do not.
+	assert.strictEqual(enter("local c = {\n    f = function()\n        return 1\n    end|\n    \n}"), "local c = {\n    f = function()\n        return 1\n    end,\n    |\n}");
+	// Not in a list, or not at the end of an element.
+	for (const text of [
+		"foo(\n    a|\n    \n)",                                   // call arguments
+		"local c = {\n    \n    |\n}",                              // an empty line: only a line break
+		"local c = {\n    inner = {|\n        \n    }\n}",           // the line opens a table itself
+		"function name(|\n    \n)\nend",                           // the line opens the parameters
+		"local c = {\n    f = function()\n        return 1|\n        \n    end\n}", // statement in a function
+		"local c = {\n    a = 1 +|\n    \n}",                      // the expression goes on
+		"local c = {\n    a = 1 and|\n    \n}", "local c = {\n    a =|\n    \n}", "function f(\n    a:|\n    \n)\nend", "local c = {\n    a = b..|\n    \n}",
+		"local f = |x| -> int {\n    return x|\n    \n}",         // body of a lambda
+		"local c = {\n    a = 1|\n",                              // no closer
+		"if x then\n    a = 1|\n    \nend",                       // not a list
+		"local c = [\n    a|\n    \n]",
+	])
+	{
+		assert.strictEqual(enterAt(text), null, text);
+	}
+	// `...` is the last parameter: no comma. A nullable type ending in `?` is an element.
+	assert.deepStrictEqual(enterAt("function f(\n    a,\n    ...|\n    \n)\nend").edits, []);
+	assert.strictEqual(enterAt("function f(\n    a: int?|\n    \n)\nend").edits[0].text, ",");
+	// Types in the parameters are no function bodies.
+	assert.strictEqual(enterAt("function f(\n    cb: function(x: int): int|\n    \n)\nend").edits[0].text, ",");
+	assert.strictEqual(enterAt("$type F = function(a: string): int\nlocal c = {\n    a = 1|\n    \n}").edits[0].text, ",");
+	// Loops and blocks inside a table's function do not confuse it.
+	assert.strictEqual(enterAt("local c = {\n    f = function()\n        for i = 1, 3 do\n            x = i|\n            \n        end\n    end,\n}"), null);
+	assert.strictEqual(enterAt("local c = {\n    f = function() for i = 1, 3 do end end|\n    \n}").edits[0].text, ",");
+	// The settings switch each kind off.
+	assert.strictEqual(enterAt("function f(\n    a|\n    \n)\nend", { params: false, tables: true }), null);
+	assert.strictEqual(enterAt("local c = {\n    a|\n    \n}", { params: true, tables: false }), null);
+	assert(enterAt("local c = {\n    a|\n    \n}", { params: false, tables: true }));
+});
+
+test("multiline format: the settings exist and are on by default", function ()
+{
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	for (const key of ["pluto.format.multilineParams", "pluto.format.multilineTables"])
+	{
+		assert.strictEqual(props[key].type, "boolean");
+		assert.strictEqual(props[key].default, true);
+		assert(props[key].markdownDescription.includes("%" + key + ".markdownDescription%"));
+	}
+});
