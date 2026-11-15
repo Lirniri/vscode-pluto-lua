@@ -3446,7 +3446,7 @@ test("settings panel: the page", function ()
 	assert(pkg.contributes.commands.some(c => c.command == "plua.openSettings"));
 	assert(pkg.activationEvents.includes("onCommand:plua.openSettings"));
 	assert.strictEqual(nls["command.openSettings.title"], "Plua: Settings");
-	assert.strictEqual(nlsRu["command.openSettings.title"], "Pluto: Настройки");
+	assert.strictEqual(nlsRu["command.openSettings.title"], "Plua: Настройки");
 	// The tabs have titles in both languages.
 	for (const tab of settingsModel.TABS)
 	{
