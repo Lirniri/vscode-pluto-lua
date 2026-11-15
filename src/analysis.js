@@ -101,6 +101,7 @@ const PRIMITIVE_TYPES = new Map([
 	["nil", "The absence of a value."],
 	["void", "No return value."],
 	["any", "Any type."],
+	["mixed", "Any type."],
 ]);
 
 /**
@@ -110,7 +111,8 @@ const PRIMITIVE_TYPES = new Map([
  * @param {string} lineText
  * @param {number} start
  * @param {number} end
- * @returns {{ word: string, primitive: boolean }|null}
+ * @returns {{ word: string, primitive: boolean, returnType?: boolean, nullable?: boolean, leadingQ?: boolean, trailingQ?: boolean }|null}
+ *   `returnType`: the word is part of a function's return type; `nullable`: it is written `?int` or `int?`.
  */
 function typeAnnotationAt(lineText, start, end)
 {
@@ -126,6 +128,8 @@ function typeAnnotationAt(lineText, start, end)
 		}
 	};
 	let direct = true; // the word follows `:` directly, without `?` or a union in between
+	let pass = 0;
+	let leadingQ = false; // `?int`
 	for (;;)
 	{
 		skipSpace();
@@ -133,8 +137,10 @@ function typeAnnotationAt(lineText, start, end)
 		{
 			--k;
 			direct = false;
+			leadingQ = leadingQ || pass == 0;
 			skipSpace();
 		}
+		++pass;
 		if (lineText[k] != "|")
 		{
 			break;
@@ -157,10 +163,27 @@ function typeAnnotationAt(lineText, start, end)
 		k = j;
 		direct = false;
 	}
+	// `int?`: nullable with the `?` after the type (`?int` before it is the other accepted spelling).
+	const trailingQ = lineText[end] == "?" && !/^\?[.?[]/.test(lineText.slice(end));
+	const make = function (returnType)
+	{
+		const hint = { word, primitive };
+		if (leadingQ || trailingQ)
+		{
+			hint.nullable = true;
+			hint.leadingQ = leadingQ;
+			hint.trailingQ = trailingQ;
+		}
+		if (returnType)
+		{
+			hint.returnType = true;
+		}
+		return hint;
+	};
 	if (lineText[k] == ">" && lineText[k - 1] == "-")
 	{
 		// `-> bool`; lambda bodies (`|x| -> x`) are expressions, so only built-in types count.
-		return primitive && !/^[.:([]/.test(after) ? { word, primitive } : null;
+		return primitive && !/^[.:([]/.test(after.replace(/^\?/, "")) ? make(true) : null;
 	}
 	if (lineText[k] != ":" || lineText[k - 1] == ":")
 	{
@@ -174,7 +197,13 @@ function typeAnnotationAt(lineText, start, end)
 	{
 		return null; // e.g. `cond ? x : string.format(...)`
 	}
-	return { word, primitive };
+	// `function f(a): int` — the type of what the function returns, not of a parameter or variable.
+	let p = k - 1;
+	while (p >= 0 && /\s/.test(lineText[p]))
+	{
+		--p;
+	}
+	return make(lineText[p] == ")");
 }
 
 /**

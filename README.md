@@ -7,10 +7,11 @@ For information regarding the installation, features, & usage of this editor int
 Besides syntax highlighting and snippets, the VS Code extension provides language features for `.pluto` files:
 
 - **Completion** for Pluto keywords, the standard library (`string.split`, `table.contains`, `io.listdir`, `json.encode`, ...), built-in modules (`require "pluto:json"`), and everything declared in your workspace: classes, methods, fields, functions with their parameters and type hints, enums, and module ids from `info.json` manifests.
-- **Hover** with the signature, the comment written above the declaration, the file it comes from and, for functions and methods, their source code in a compact form (comments removed, indentation normalized, logical blocks separated by blank lines; see `pluto.hover.showFunctionBody` and `pluto.hover.maxBodyLines`).
+- **Hover** with the signature, the comment written above the declaration, the file it comes from and, for functions and methods, their source code in a compact form (comments removed, indentation normalized, logical blocks separated by blank lines; see `pluto.hover.showFunctionBody` and `pluto.hover.maxBodyLines`). Hovering a return type (`void` in `function f(): void`) also shows what the developer wrote in an `@return` comment, above the function or inside of its body, e.g. `-- @return bool Whether it worked`; the same lines are part of the function's hover and signature help.
 - **Signature help** when typing `(`, highlighting the current argument.
 - **Go to Definition** (`F12` / `Ctrl+Click`) for classes, methods, functions, variables, and the file behind `require("...")`.
 - **Outline & breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), and **folding** of blocks, comments and `--#region` markers.
+- **Type hints**: typing `:` in `function f(a: `, `function f(): ` or `local x: ` opens the list of types (built-in types and your classes, each also as nullable `int?`); nullable types are highlighted and explained on hover (`(nullable type) int? — Can be int or nil`), also in signature help. Both spellings, `int?` and `?int`, are understood.
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -47,6 +48,10 @@ The language features also work in `.lua` files (switch them off with `pluto.lua
 | `pluto.index.maxFiles` | `5000` | Maximum number of files to index. |
 | `pluto.completion.keywords` | `true` | Suggest keywords. |
 | `pluto.completion.documentWords` | `true` | Suggest other words of the current document. |
+| `pluto.completion.autoTriggerTypes` | `true` | Open the list of types by itself after `:` in type hints (`a: `, `): `, `local x: `), in Pluto files only. |
+| `pluto.highlight.nullableTypes` | `true` | Highlight nullable types (`int?`, `?string`, `Vehicle?`). |
+| `pluto.highlight.nullableTypeColor` | `#FFFFFF` | Their color in dark and high contrast themes. |
+| `pluto.highlight.nullableTypeLightColor` | `#000000` | Their color in light themes. |
 | `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |

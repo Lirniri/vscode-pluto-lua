@@ -456,7 +456,8 @@ function parse(text, options)
 					if (isP(k, ":") && k < end)
 					{
 						param.type = sliceTokens(k + 1, eq);
-						if (param.type.startsWith("?"))
+						// `?int` and `int?` both make the parameter nullable, so it may be left out.
+						if (param.type.startsWith("?") || param.type.endsWith("?"))
 						{
 							param.optional = true;
 						}
@@ -1714,7 +1715,7 @@ function formatParams(params)
 	return params.map(function (p)
 	{
 		let s = (p.visibility ? p.visibility + " " : "") + p.name;
-		if (p.optional && !(p.type && p.type.startsWith("?")) && p.default === undefined)
+		if (p.optional && !(p.type && (p.type.startsWith("?") || p.type.endsWith("?"))) && p.default === undefined)
 		{
 			s += "?";
 		}

@@ -5,6 +5,8 @@
 const vscode = require("vscode");
 const fs = require("fs");
 const { formatFunctionSource } = require("./functionSource");
+const { collectReturnTags, describeReturnType } = require("./returnTags");
+const { isTypeHintPosition, isNullableType, describeNullable } = require("./typeHints");
 const builtins = require("./builtins");
 const { formatSignature, formatParams, computeFolding } = require("./parser");
 const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES } = require("./analysis");
@@ -133,13 +135,14 @@ function createProviders(service)
 	 * @param {any} sym
 	 * @param {any} [fromFile] When given, a link to the declaration is appended.
 	 */
-	const symbolMarkdown = function (sym, fromFile)
+	const symbolMarkdown = function (sym, fromFile, document)
 	{
 		const md = new vscode.MarkdownString();
 		md.appendCodeblock(formatSignature(sym), "pluto");
-		if (sym.doc)
+		const doc = docOf(sym, document);
+		if (doc)
 		{
-			md.appendMarkdown(sym.doc.replace(/\n/g, "  \n") + "\n\n");
+			md.appendMarkdown(doc.replace(/\n/g, "  \n") + "\n\n");
 		}
 		if (fromFile && sym.file)
 		{
@@ -165,16 +168,114 @@ function createProviders(service)
 		}
 		try
 		{
-			if (fs.statSync(file.path).size > 2 * 1024 * 1024)
+			const stat = fs.statSync(file.path);
+			if (stat.size > 2 * 1024 * 1024)
 			{
 				return null;
 			}
-			return fs.readFileSync(file.path, "utf8");
+			// Signature help asks on every comma: don't read an unchanged file again.
+			const cached = diskCache.get(file.path);
+			if (cached && cached.mtimeMs == stat.mtimeMs && cached.size == stat.size)
+			{
+				return cached.text;
+			}
+			const text = fs.readFileSync(file.path, "utf8");
+			if (diskCache.size > 100)
+			{
+				diskCache.clear();
+			}
+			diskCache.set(file.path, { mtimeMs: stat.mtimeMs, size: stat.size, text });
+			return text;
 		}
 		catch (e)
 		{
 			return null;
 		}
+	};
+
+	const diskCache = new Map();
+
+	const isBuiltinType = (name) => PRIMITIVE_TYPES.has(name);
+	/** Per file: its text, lines and the @return tags found so far, by function. */
+	const returnTagCache = new Map();
+
+	/**
+	 * @return tags of a function: from the comment above it and from comments inside of its body.
+	 * @returns {{ source: "doc"|"body", raw: string, type: string|null, text: string }[]}
+	 */
+	const returnTagsOf = function (sym, document)
+	{
+		if (!sym.file || sym.endLine === undefined || sym.endLine < sym.line)
+		{
+			return [];
+		}
+		const text = textOf(sym.file, document);
+		if (text === null)
+		{
+			return [];
+		}
+		let entry = returnTagCache.get(sym.file.key);
+		if (!entry || entry.text !== text)
+		{
+			if (returnTagCache.size > 200)
+			{
+				returnTagCache.clear();
+			}
+			entry = { text, lines: text.split(/\r?\n/), bySymbol: new Map() };
+			returnTagCache.set(sym.file.key, entry);
+		}
+		const key = sym.line + ":" + sym.col + ":" + sym.name;
+		let tags = entry.bySymbol.get(key);
+		if (!tags)
+		{
+			const nested = sym.file.symbols.filter(s => s !== sym && (s.kind == "function" || s.kind == "method") && s.line > sym.line && s.endLine >= s.line && s.endLine <= sym.endLine);
+			tags = collectReturnTags(sym, entry.lines, nested, isBuiltinType);
+			entry.bySymbol.set(key, tags);
+		}
+		return tags;
+	};
+
+	/**
+	 * The doc comment of a function, plus the @return lines the developer wrote inside of its body.
+	 * @param {any} sym
+	 * @param {vscode.TextDocument} [document] Without it, only the comment above is used (cheap, for completion lists).
+	 */
+	const docOf = function (sym, document)
+	{
+		const doc = sym.doc || "";
+		if (!document || (sym.kind != "function" && sym.kind != "method"))
+		{
+			return doc;
+		}
+		const extra = returnTagsOf(sym, document).filter(t => t.source == "body" && !doc.includes(t.raw));
+		return extra.length ? [doc, ...extra.map(t => t.raw)].filter(Boolean).join("\n") : doc;
+	};
+
+	/**
+	 * The function whose signature is on this line (parameters may continue on following lines).
+	 */
+	const declarationAt = function (file, line)
+	{
+		let best = null;
+		for (const s of file.symbols)
+		{
+			if ((s.kind == "function" || s.kind == "method") && s.line <= line && line <= s.line + 10 && line <= s.endLine && (!best || s.line >= best.line))
+			{
+				best = s;
+			}
+		}
+		return best;
+	};
+
+	/**
+	 * Hover text for a return type: what the developer wrote in @return.
+	 * @returns {vscode.MarkdownString|null}
+	 */
+	const returnDocMarkdown = function (file, document, line, word)
+	{
+		const sym = declarationAt(file, line);
+		const description = sym ? describeReturnType(returnTagsOf(sym, document), word) : null;
+		return description ? new vscode.MarkdownString("**@return** " + description) : null;
 	};
 
 	/**
@@ -340,7 +441,67 @@ function createProviders(service)
 		return items;
 	};
 
-	const completionProvider = {
+	const isPlutoDocument = (document) => document.languageId == "pluto" || /\.pluto$/i.test(document.uri.path);
+
+// Built-in types that make no sense as nullable.
+const NOT_NULLABLE = new Set(["void", "nil", "any", "mixed"]);
+
+/**
+ * Types for a type hint: built-in types and the classes and enums of the workspace, each also
+ * as nullable variant (`int?`).
+ */
+const typeItems = function (file, line, glue)
+{
+	const items = [];
+	const nullableOf = function (base, kind, doc, sort)
+	{
+		const label = base + "?";
+		const item = new vscode.CompletionItem(label, kind);
+		const info = describeNullable(label);
+		item.detail = info.title;
+		item.documentation = new vscode.MarkdownString((doc ? doc + "\n\n" : "") + info.text + ".");
+		item.sortText = sort + "1";
+		return item;
+	};
+	const builtinKind = vscode.CompletionItemKind.TypeParameter || vscode.CompletionItemKind.Keyword;
+	for (const [name, doc] of PRIMITIVE_TYPES)
+	{
+		const item = new vscode.CompletionItem(name, builtinKind);
+		item.detail = "(type) " + name;
+		item.documentation = new vscode.MarkdownString(doc);
+		item.sortText = "0" + name;
+		items.push(item);
+		if (!NOT_NULLABLE.has(name))
+		{
+			items.push(nullableOf(name, builtinKind, doc, "0" + name));
+		}
+	}
+	const seen = new Set(PRIMITIVE_TYPES.keys());
+	for (const sym of [...analyzer.visibleLocals(file, line).values(), ...index.globals()])
+	{
+		if ((sym.kind == "class" || sym.kind == "enum") && !sym.container && !seen.has(sym.name))
+		{
+			seen.add(sym.name);
+			const item = symbolItem(sym, "1", file);
+			items.push(item);
+			const variant = nullableOf(sym.name, COMPLETION_KINDS[sym.kind] || vscode.CompletionItemKind.Class, "", "1" + sym.name);
+			variant.documentation = item.documentation;
+			items.push(variant);
+		}
+	}
+	if (glue)
+	{
+		// `text:|` → `text: bool`: the space after the colon comes with the type.
+		for (const item of items)
+		{
+			item.filterText = typeof item.label == "string" ? item.label : item.label.label;
+			item.insertText = glue + item.filterText;
+		}
+	}
+	return items;
+};
+
+const completionProvider = {
 		/**
 		 * @param {vscode.TextDocument} document
 		 * @param {vscode.Position} position
@@ -379,28 +540,22 @@ function createProviders(service)
 			const chain = chainBefore(lineText, position.character);
 			const prefixStart = position.character - chain.prefix.length;
 
-			// Type hint (`ped: |`, `function f(): |`): suggest types, not members of `ped`.
-			if (isTypeHintPosition(before.slice(0, prefixStart)))
+			// Type hint (`ped: |`, `function f(): |`): suggest types, not members of `ped`. Only in Pluto files.
+			const inTypeHint = isPlutoDocument(document) && isTypeHintPosition(before.slice(0, prefixStart));
+			if (context.triggerCharacter == " " && !inTypeHint)
 			{
-				const items = [];
-				for (const [name, doc] of PRIMITIVE_TYPES)
+				return undefined; // a space only opens the list inside of type hints
+			}
+			if (inTypeHint)
+			{
+				// `:` and a space open the list by themselves, unless that is switched off.
+				if (context.triggerCharacter && !vscode.workspace.getConfiguration("pluto").get("completion.autoTriggerTypes", true))
 				{
-					const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.TypeParameter || vscode.CompletionItemKind.Keyword);
-					item.detail = "(type) " + name;
-					item.documentation = new vscode.MarkdownString(doc);
-					item.sortText = "0" + name;
-					items.push(item);
+					return undefined;
 				}
-				const seen = new Set(PRIMITIVE_TYPES.keys());
-				for (const sym of [...analyzer.visibleLocals(file, position.line).values(), ...index.globals()])
-				{
-					if ((sym.kind == "class" || sym.kind == "enum") && !sym.container && !seen.has(sym.name))
-					{
-						seen.add(sym.name);
-						items.push(symbolItem(sym, "1", file));
-					}
-				}
-				return items;
+				// A colon right in front of the word (not `::`) gets a space after it: `text:|` → `text: bool`.
+				const glue = before[prefixStart - 1] == ":" && before[prefixStart - 2] != ":" ? " " : "";
+				return typeItems(file, position.line, glue);
 			}
 			const charBefore = before[prefixStart - 1];
 			const charBefore2 = before[prefixStart - 2];
@@ -613,22 +768,39 @@ function createProviders(service)
 				return undefined;
 			}
 			const range = new vscode.Range(position.line, chain.start, position.line, chain.end);
+			const file = service.getRecord(document);
+			// On a return type, what the developer wrote in @return is shown below the type itself.
+			const returnDoc = chain.returnType ? returnDocMarkdown(file, document, position.line, chain.word) : null;
+			// `int?` / `?int`: the range covers the question mark, and the tip says what nullable means.
+			let nullableDoc = null;
+			let hoverRange = range;
+			if (chain.nullable)
+			{
+				hoverRange = new vscode.Range(position.line, chain.leadingQ ? chain.start - 1 : chain.start, position.line, chain.trailingQ ? chain.end + 1 : chain.end);
+				const info = describeNullable((chain.leadingQ ? "?" : "") + chain.word + (chain.trailingQ ? "?" : ""));
+				nullableDoc = new vscode.MarkdownString();
+				nullableDoc.appendCodeblock(info.title, "pluto");
+				nullableDoc.appendMarkdown(info.text);
+			}
 			if (chain.primitive)
 			{
 				// `int` in `ped: int = 0`: a built-in type, not a field named `int`.
-				const md = new vscode.MarkdownString();
-				md.appendCodeblock("(type) " + chain.word, "pluto");
-				md.appendMarkdown(PRIMITIVE_TYPES.get(chain.word));
-				return new vscode.Hover(md, range);
+				let md = nullableDoc;
+				if (!md)
+				{
+					md = new vscode.MarkdownString();
+					md.appendCodeblock("(type) " + chain.word, "pluto");
+					md.appendMarkdown(PRIMITIVE_TYPES.get(chain.word));
+				}
+				return new vscode.Hover(returnDoc ? [md, returnDoc] : md, hoverRange);
 			}
-			const file = service.getRecord(document);
 			const resolved = analyzer.resolve(file, position.line, chain.parts, { lastSep: chain.lastSep });
-			const contents = [];
+			const contents = nullableDoc ? [nullableDoc] : [];
 			const maxDeclarations = Math.max(1, Math.floor(Number(vscode.workspace.getConfiguration("pluto").get("hover.maxDeclarations", 8))) || 8);
 			for (const sym of resolved.symbols.slice(0, maxDeclarations))
 			{
 				// Hovering a class shows its constructor, too.
-				const md = symbolMarkdown(sym, file);
+				const md = symbolMarkdown(sym, file, document);
 				// The source is only shown when it is clear which function is meant.
 				if (resolved.symbols.length == 1 && (sym.kind == "function" || sym.kind == "method") && Array.isArray(sym.params))
 				{
@@ -663,6 +835,10 @@ function createProviders(service)
 				md.appendMarkdown(resolved.keyword.doc);
 				contents.push(md);
 			}
+			if (returnDoc)
+			{
+				contents.push(returnDoc);
+			}
 			if (resolved.symbols.length > 1)
 			{
 				// Only text generated here goes into a trusted string: doc comments of the workspace must
@@ -672,7 +848,7 @@ function createProviders(service)
 				link.isTrusted = { enabledCommands: [SHOW_DECLARATIONS_COMMAND] };
 				contents.push(link);
 			}
-			return contents.length ? new vscode.Hover(contents, range) : undefined;
+			return contents.length ? new vscode.Hover(contents, hoverRange) : undefined;
 		},
 	};
 
@@ -762,7 +938,8 @@ function createProviders(service)
 					isCtor ? "new " + sym.container : qualified,
 					sym.params.map(p => formatParams([p])),
 					sym.returnType && !isCtor ? ": " + sym.returnType : "",
-					sym.doc
+					docOf(sym, document),
+					sym.params.map(p => isNullableType(p.type) ? describeNullable(p.type).title + " — " + describeNullable(p.type).text : undefined)
 				));
 				// `obj:method(a)` on a function declared as `function T.method(self, a)`
 				const shift = lastSep == ":" && sym.sep == "." && !isCtor && sym.params.length && sym.params[0].name == "self" ? 1 : 0;
@@ -1272,28 +1449,6 @@ function createProviders(service)
 	};
 }
 
-// The text before the type being typed, e.g. `function f(ped: ?int|` or `local count: `.
-const TYPE_TAIL = ":\\s*(?:[?\\w.]+\\s*\\|\\s*)*\\??\\s*$";
-const TYPE_HINT_POSITIONS = [
-	// parameter of a function declaration: `function f(a, ped: ` / `function(ped: `
-	new RegExp("\\bfunction\\b[\\w.:\\s]*\\([^()]*\\b\\w+\\s*" + TYPE_TAIL),
-	// return type: `function f(a): `
-	new RegExp("\\bfunction\\b[\\w.:\\s]*\\([^()]*\\)\\s*" + TYPE_TAIL),
-	// `local count: `, `local a: int, b: `, `public name: `, `static x: `
-	new RegExp("^\\s*(?:(?:local|export|public|private|protected|static|const)\\s+)+(?:\\w+\\s*(?::\\s*[^,=]+)?,\\s*)*\\w+\\s*" + TYPE_TAIL),
-	// class field without modifier, written with a space after the colon: `name: string`
-	new RegExp("^\\s*\\w+:\\s+(?:[?\\w.]+\\s*\\|\\s*)*\\??\\s*$"),
-];
-
-/**
- * Whether completion at the end of `before` is inside a type hint.
- * `self:` / `obj:` (method calls) don't count.
- */
-function isTypeHintPosition(before)
-{
-	return TYPE_HINT_POSITIONS.some(re => re.test(before));
-}
-
 /**
  * In a type hint (`ped: Ped`, `x: int`), the word is a type name on its own, not a member of what
  * precedes the `:`. Returns the chain to resolve, with `primitive` set for built-in types.
@@ -1309,7 +1464,7 @@ function typeHintChain(chain, lineText)
 	{
 		return chain;
 	}
-	return Object.assign({}, chain, { parts: [chain.word], seps: [], lastSep: null, primitive: hint.primitive });
+	return Object.assign({}, chain, { parts: [chain.word], seps: [], lastSep: null, primitive: hint.primitive, returnType: hint.returnType, nullable: hint.nullable, leadingQ: hint.leadingQ, trailingQ: hint.trailingQ });
 }
 
 function fuzzyContains(haystack, needle)
@@ -1329,4 +1484,4 @@ function fuzzyContains(haystack, needle)
 	return needle.length == 0;
 }
 
-module.exports = { createProviders, lineContext, stringAt, SHOW_DECLARATIONS_COMMAND };
+module.exports = { createProviders, lineContext, stringAt, SHOW_DECLARATIONS_COMMAND, isTypeHintPosition };

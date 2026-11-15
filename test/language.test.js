@@ -730,6 +730,84 @@ test("auto-close: which lines get an `end`", function ()
 	}
 });
 
+test("indentation: Enter after block openers (Pluto and Lua)", function ()
+{
+	const root = path.join(__dirname, "..");
+	const load = (name) => JSON.parse(fs.readFileSync(path.join(root, name), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+	// What VS Code does on Enter: the first rule whose beforeText (and afterText) match decides.
+	const onEnter = function (config, before, after)
+	{
+		for (const rule of config.onEnterRules)
+		{
+			if (new RegExp(rule.beforeText).test(before) && (!rule.afterText || new RegExp(rule.afterText).test(after || "")))
+			{
+				return rule.action.indent;
+			}
+		}
+		return undefined;
+	};
+	const pluto = load("language-config.json");
+	const lua = load("language-config-lua.json");
+	const inc = (config, line) => new RegExp(config.indentationRules.increaseIndentPattern).test(line);
+	const dec = (config, line) => new RegExp(config.indentationRules.decreaseIndentPattern).test(line);
+
+	const plutoOpeners = ["if x then", "if x do", "elseif x then", "elseif x do", "else", "for i = 1, 3 do", "for k, v in pairs(t) do", "while x do", "repeat",
+		"function f()", "local function f()", "\tfunction method(a: int): bool", "class A", "class A extends B", "switch x do", "case 1:", "default:", "do",
+		"try", "catch e", "enum Color begin", "x = function(a)", "add(function()", "cb = function(a): int", "local t = {", "\tif a and b then"];
+	for (const line of plutoOpeners)
+	{
+		assert.strictEqual(onEnter(pluto, line, ""), "indent", "indent after: " + line);
+		assert.strictEqual(inc(pluto, line), true, "increaseIndentPattern: " + line);
+		if (!line.endsWith("{"))
+		{
+			assert.strictEqual(onEnter(pluto, line, "end"), "indentOutdent", "indentOutdent before end: " + line);
+			assert.strictEqual(onEnter(pluto, line, "  end"), "indentOutdent", line);
+		}
+	}
+	assert.strictEqual(onEnter(pluto, "repeat", "until x"), "indentOutdent");
+	assert.strictEqual(onEnter(pluto, "local t = {", "}"), "indentOutdent");
+	assert.strictEqual(onEnter(pluto, "f(function()", "end)"), "indentOutdent");
+	// Doc comments keep their own rule; everything else is left alone.
+	assert.strictEqual(onEnter(pluto, "--- Does a thing", ""), "none");
+	for (const line of ["local x = 1", "print(1)", "if x then return end", "function f() end", "repeat tick() until x", "-- what to do", "-- if you want", "$type Func = function(_: string): void", "default = 5", "default: int", "local f = function(a) return a end"])
+	{
+		assert.strictEqual(onEnter(pluto, line, ""), line.startsWith("---") ? "none" : undefined, "no indent after: " + line);
+		assert.strictEqual(inc(pluto, line), false, "no increase: " + line);
+	}
+	// `case`/`default` labels stand at the level of the previous label.
+	assert.strictEqual(dec(pluto, "\tcase 2:") && dec(pluto, "default:") && dec(pluto, "else") && dec(pluto, "end"), true);
+	assert.strictEqual(dec(pluto, "default = 5") || dec(pluto, "x = case_count"), false);
+
+	const luaOpeners = ["if x then", "elseif x then", "else", "for i = 1, 3 do", "for k, v in pairs(t) do", "while x do", "repeat", "function f()", "function M.add(a, b)",
+		"function obj:method()", "local function f()", "do", "cb = function(a)", "add(function()", "local t = {", "M.run = function()"];
+	for (const line of luaOpeners)
+	{
+		assert.strictEqual(onEnter(lua, line, ""), "indent", "Lua, indent after: " + line);
+		if (!line.endsWith("{"))
+		{
+			assert.strictEqual(onEnter(lua, line, "end"), "indentOutdent", "Lua, before end: " + line);
+		}
+		else
+		{
+			assert.strictEqual(onEnter(lua, line, "}"), "indentOutdent", "Lua, before }: " + line);
+		}
+	}
+	// Words that are keywords only in Pluto are plain names in Lua.
+	for (const line of ["class = 5", "class A", "switch(x)", "try = 1", "local x = 1", "-- do it", "if x then return end", "function f() end"])
+	{
+		assert.strictEqual(onEnter(lua, line, ""), undefined, "Lua, no indent after: " + line);
+		assert.strictEqual(inc(lua, line), false, line);
+	}
+	assert.strictEqual(dec(lua, "end") && dec(lua, "else") && dec(lua, "until x") && dec(lua, "}"), true);
+
+	// Both configurations are contributed: Pluto's for .pluto, the Lua one for .lua.
+	const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+	const luaLanguage = pkg.contributes.languages.find(l => l.id == "lua");
+	assert(luaLanguage && luaLanguage.configuration == "./language-config-lua.json");
+	assert(fs.existsSync(path.join(root, "language-config-lua.json")));
+	assert.deepStrictEqual(pkg.contributes.languages.find(l => l.id == "pluto").extensions, [".pluto"]);
+});
+
 test("language configuration and manifest are consistent", function ()
 {
 	const root = path.join(__dirname, "..");
@@ -952,7 +1030,6 @@ test("hover/definition: built-in types in type hints are not looked up as fields
 	{
 		for (const text of [
 			"function spawn(ped: i|nt = 0) end",
-			"function spawn(ped: ?i|nt) end",
 			"function spawn(ped): b|ool end",
 			"local count: i|nt = 0",
 			"class Car\n    public speed: flo|at = 0\nend",
@@ -966,8 +1043,13 @@ test("hover/definition: built-in types in type hints are not looked up as fields
 		// Unions, lambdas and `->` (the test cursor marker can't be used next to `|`).
 		const typeAt = (line, word) => typeAnnotationAt(line, line.lastIndexOf(word), line.lastIndexOf(word) + word.length);
 		assert.deepStrictEqual(typeAt("function spawn(ped: string|int) end", "int"), { word: "int", primitive: true });
-		assert.deepStrictEqual(typeAt("function spawn(ped: string | ?int) end", "int"), { word: "int", primitive: true });
-		assert.deepStrictEqual(typeAt("local f = |x: number| -> bool", "bool"), { word: "bool", primitive: true });
+		assert.deepStrictEqual(typeAt("function spawn(ped: string | ?int) end", "int"), { word: "int", primitive: true, nullable: true, leadingQ: true, trailingQ: false });
+		assert.deepStrictEqual(typeAt("function spawn(ped: int?, b) end", "int"), { word: "int", primitive: true, nullable: true, leadingQ: false, trailingQ: true });
+		assert.deepStrictEqual(typeAt("function spawn(ped: int | string?) end", "int"), { word: "int", primitive: true });
+		assert.deepStrictEqual(typeAt("function spawn(ped): Car?", "Car"), { word: "Car", primitive: false, nullable: true, leadingQ: false, trailingQ: true, returnType: true });
+		assert.deepStrictEqual(typeAt("function spawn(ped) : int", "int"), { word: "int", primitive: true, returnType: true });
+		assert.deepStrictEqual(typeAt("local f = |x: number| -> bool", "bool"), { word: "bool", primitive: true, returnType: true });
+		assert.deepStrictEqual(typeAt("function spawn(ped): ?string|int", "int"), { word: "int", primitive: true, returnType: true });
 		assert.deepStrictEqual(typeAt("local f = |x: number| -> bool", "number"), { word: "number", primitive: true });
 		assert.strictEqual(typeAt("local f = |x| -> x", "x"), null);
 		assert.strictEqual(typeAt("local z = a | int", "int"), null);
@@ -1194,6 +1276,329 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 			index.removeFile(key);
 		}
 	}
+});
+
+const { findNullableTypes, isTypeHintPosition, describeNullable, isNullableType } = require("../src/typeHints");
+
+test("nullable types: finding them in a source file", function ()
+{
+	const src = [
+		"function spawn(ped: int?, name: string, model: ?string): Vehicle?",   // 0
+		"    local x: Foo.Bar? = nil",                                         // 1
+		"    local y: number|nil, z: bool? = 1, true",                          // 2
+		"    local ok = obj:method(a?) and cond ? a : b",                       // 3
+		"end",                                                                 // 4
+		"class Car",                                                           // 5
+		"    public owner: Person?",                                           // 6
+		"    wheels: int?",                                                    // 7
+		"end",                                                                 // 8
+		"function multi(",                                                     // 9
+		"    first: Thing?,",                                                  // 10
+		"    second: int",                                                     // 11
+		"): string?",                                                          // 12
+		"end",                                                                 // 13
+		"local s = \"a: int?\" -- b: string?",                                  // 14
+		"switch x do",                                                         // 15
+		"    default: print(1)",                                               // 16
+		"end",                                                                 // 17
+	].join("\n");
+	const found = findNullableTypes(src);
+	assert.deepStrictEqual(found.map(f => [f.line, f.text]), [
+		[0, "int?"], [0, "?string"], [0, "Vehicle?"],
+		[1, "Foo.Bar?"],
+		[2, "bool?"],
+		[6, "Person?"],
+		[7, "int?"],
+		[10, "Thing?"],
+		[12, "string?"],
+	]);
+	const first = found[0];
+	assert.deepStrictEqual([first.col, first.endCol], [20, 24]);
+	assert.strictEqual(src.split("\n")[first.line].slice(first.col, first.endCol), "int?");
+
+	assert.strictEqual(isNullableType("int?") && isNullableType("?int") && isNullableType("string|int?"), true);
+	assert.strictEqual(isNullableType("int") || isNullableType("int|nil") || isNullableType(undefined), false);
+	assert.deepStrictEqual(describeNullable("?string"), { title: "(nullable type) ?string", text: "Can be `string` or `nil` (optional / nullable)" });
+});
+
+test("type hints: where completion opens", function ()
+{
+	for (const yes of ["function f(a: ", "function f(a, b:", "function f(a): ", "local x: ", "local a: int, b: ", "public name: ", "    name: ", "function f(a: int|", "function f(a: ?"])
+	{
+		assert.strictEqual(isTypeHintPosition(yes), true, yes);
+	}
+	for (const no of ["obj:", "self:", "foo(obj:", "local ok = a ? b : ", "    default: ", "case 1: ", "x = t:", "function f(a: int) return obj:", "function f(a: int) "])
+	{
+		assert.strictEqual(isTypeHintPosition(no), false, no);
+	}
+});
+
+test("type completion: built-in and nullable types, classes, Pluto files only", function ()
+{
+	const labels = complete("function f(a: |").labels;
+	for (const name of ["int", "int?", "number?", "float?", "string?", "bool?", "table?", "function?", "userdata?", "void", "any", "mixed", "Human", "Human?", "Color", "Color?"])
+	{
+		assert(labels.includes(name), name + " in " + labels.join(" "));
+	}
+	for (const name of ["void?", "any?", "mixed?", "nil?", "speak", "split"])
+	{
+		assert(!labels.includes(name), name);
+	}
+	const items = complete("local x: |");
+	assert.strictEqual(items.get("Human").kind, vscode.CompletionItemKind.Class);
+	assert.strictEqual(items.get("Human?").kind, vscode.CompletionItemKind.Class);
+	assert.strictEqual(items.get("Human?").detail, "(nullable type) Human?");
+	assert.strictEqual(items.get("int?").detail, "(nullable type) int?");
+	assert(items.get("int?").documentation.value.includes("Can be `int` or `nil`"));
+	assert(items.labels.indexOf("int?") == items.labels.indexOf("int") + 1 || items.get("int?").sortText > items.get("int").sortText);
+
+	// Typing `:` or a space opens the list in a type hint and nowhere else.
+	const typed = (text, ch) => complete(text, { triggerKind: 1, triggerCharacter: ch }).labels;
+	assert(typed("function f(a:|", ":").includes("int?"));
+
+	// `text:` without a space: the chosen type brings the space, so the result is `text: bool`.
+	for (const text of ["function f(text:|", "function f(text:b|", "local text:|", "function f(): void\nfunction g(a, text:|"])
+	{
+		const list = complete(text);
+		for (const label of ["bool", "int?", "string", "Human", "Human?"])
+		{
+			assert.strictEqual(list.get(label).insertText, " " + label, text + " → " + label);
+			assert.strictEqual(list.get(label).filterText, label);
+		}
+	}
+	// With a space already there nothing is added.
+	for (const text of ["function f(text: |", "function f(text: b|", "local text:  |"])
+	{
+		const list = complete(text);
+		assert.strictEqual(list.get("bool").insertText, undefined, text);
+		assert.strictEqual(list.get("Human?").insertText, undefined, text);
+	}
+	assert(typed("function f(a: |", " ").includes("int?"));
+	assert(typed("function f(): |", " ").includes("string?"));
+	assert.deepStrictEqual(typed("local x = 1 |", " "), []);
+	assert.deepStrictEqual(typed("print(1) |", " "), []);
+	assert.deepStrictEqual(typed("switch x do\n    default: |", " "), []);
+	assert(!typed("local h = new Human(\"x\")\nh:|", ":").includes("int?"));
+	assert(typed("local h = new Human(\"x\")\nh:|", ":").includes("getName"));
+	vscode.config["pluto.completion.autoTriggerTypes"] = false;
+	assert.deepStrictEqual(typed("function f(a: |", " "), []);
+	assert.deepStrictEqual(typed("function f(a:|", ":"), []);
+	assert(complete("function f(a: |").labels.includes("int?"), "Ctrl+Space still works");
+	delete vscode.config["pluto.completion.autoTriggerTypes"];
+
+	// Not in Lua files.
+	const lua = vscode.createDocument("/ws/x.lua", "local x: ", "lua");
+	const offered = providers.completionProvider.provideCompletionItems(lua, new vscode.Position(0, 9), null, { triggerKind: 0 }) || [];
+	assert(!offered.some(i => i.label == "int?"));
+	assert.deepStrictEqual(providers.completionProvider.provideCompletionItems(lua, new vscode.Position(0, 9), null, { triggerKind: 1, triggerCharacter: " " }) || [], []);
+});
+
+test("hover and signature help: nullable types", function ()
+{
+	const onInt = hover("function f(ped: in|t?) end");
+	assert(onInt.includes("(nullable type) int?") && onInt.includes("Can be `int` or `nil` (optional / nullable)"), onInt);
+	assert(!onInt.includes("(type) int") && !onInt.includes("Integer number"), onInt);
+	assert(hover("function f(ped: ?str|ing) end").includes("(nullable type) ?string"));
+	assert(hover("function f(ped): bo|ol?\nend").includes("(nullable type) bool?"));
+	const cls = hover("function f(h: Hum|an?) end");
+	assert(cls.includes("(nullable type) Human?") && cls.includes("class Human"), cls);
+	// A plain type keeps its usual tip.
+	assert(hover("function f(ped: in|t) end").includes("(type) int"));
+	// The hover covers the question mark.
+	const range = (text) => { const { document, position } = at(text); return providers.hoverProvider.provideHover(document, position).range; };
+	let r = range("function f(ped: in|t?) end");
+	assert.deepStrictEqual([r.start.character, r.end.character], [16, 20]);
+	r = range("function f(ped: ?in|t) end");
+	assert.deepStrictEqual([r.start.character, r.end.character], [16, 20]);
+
+	// Signature help notes nullable parameters; they count as optional.
+	const sig = signature("function nf(a: int?, b: string, c: ?Human)\nend\nnf(|");
+	const params = sig.signatures[0].parameters;
+	assert.strictEqual(sig.signatures[0].label, "nf(a: int?, b: string, c: ?Human)");
+	assert(params[0].documentation.value.includes("(nullable type) int?") && params[0].documentation.value.includes("Can be `int` or `nil`"));
+	assert.strictEqual(params[1].documentation, undefined);
+	assert(params[2].documentation.value.includes("(nullable type) ?Human"));
+	const parsed = parse("function nf(a: int?, b: string) end").symbols[0].params;
+	assert.deepStrictEqual(parsed.map(p => p.optional === true), [true, false]);
+});
+
+test("type hints in the editor: the list opens by itself, nullable types are highlighted", function ()
+{
+	const { triggerTypeSuggest, NullableHighlighter } = require("../src/typeEditor");
+	const commands = [];
+	vscode.commands = { executeCommand: (...args) => { commands.push(args[0]); } };
+	const makeEditor = (document, line, character) => ({ document, selections: [{}], selection: { active: new vscode.Position(line, character) } });
+	const change = (document, text, line, character, extra) => ({ document, contentChanges: [{ text, rangeLength: 0, range: new vscode.Range(line, character, line, character) }], ...extra });
+	try
+	{
+		// `function f(a:` just typed.
+		let doc = vscode.createDocument("/ws/m.pluto", "function f(a:", "pluto");
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 13);
+		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12)), true);
+		assert.deepStrictEqual(commands, ["editor.action.triggerSuggest"]);
+		// A space after the colon, and after a union bar.
+		doc = vscode.createDocument("/ws/m.pluto", "function f(a: ", "pluto");
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 14);
+		assert.strictEqual(triggerTypeSuggest(change(doc, " ", 0, 13)), true);
+		// Method calls and other code never open it.
+		for (const [text, typedAt] of [["obj:", 3], ["self:", 4], ["foo(obj:", 7], ["local ok = a ? b :", 17], ["    default:", 11]])
+		{
+			doc = vscode.createDocument("/ws/m.pluto", text, "pluto");
+			vscode.window.activeTextEditor = makeEditor(doc, 0, text.length);
+			assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, typedAt)), false, text);
+		}
+		doc = vscode.createDocument("/ws/m.pluto", "local x = 1 ", "pluto");
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 12);
+		assert.strictEqual(triggerTypeSuggest(change(doc, " ", 0, 11)), false);
+		// Not in Lua files, not when switched off, not for undo, not when the cursor is elsewhere.
+		const lua = vscode.createDocument("/ws/m.lua", "function f(a:", "lua");
+		vscode.window.activeTextEditor = makeEditor(lua, 0, 13);
+		assert.strictEqual(triggerTypeSuggest(change(lua, ":", 0, 12)), false);
+		doc = vscode.createDocument("/ws/m.pluto", "function f(a:", "pluto");
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 13);
+		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12, { reason: vscode.TextDocumentChangeReason.Undo })), false);
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 5);
+		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12)), false);
+		vscode.window.activeTextEditor = makeEditor(doc, 0, 13);
+		vscode.config["pluto.completion.autoTriggerTypes"] = false;
+		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12)), false);
+		delete vscode.config["pluto.completion.autoTriggerTypes"];
+		assert.strictEqual(commands.length, 2);
+
+		// Highlight: decoration with the configured colors, applied to Pluto editors only.
+		const types = [];
+		vscode.window.createTextEditorDecorationType = (options) => { const type = { options, disposed: false, dispose() { this.disposed = true; } }; types.push(type); return type; };
+		const applied = [];
+		const pEditor = { document: vscode.createDocument("/ws/n.pluto", "function f(a: int?, b: string): Car?\nend", "pluto"), setDecorations: (type, ranges) => applied.push(["pluto", type, ranges]) };
+		const lEditor = { document: vscode.createDocument("/ws/n.lua", "function f(a: int?)\nend", "lua"), setDecorations: () => applied.push(["lua"]) };
+		vscode.window.visibleTextEditors = [pEditor, lEditor];
+		const highlighter = new NullableHighlighter();
+		assert.strictEqual(types.length, 1);
+		assert.deepStrictEqual(types[0].options, { color: "#FFFFFF", dark: { color: "#FFFFFF" }, light: { color: "#000000" } });
+		assert.deepStrictEqual(applied.map(a => a[0]), ["pluto"]);
+		assert.deepStrictEqual(applied[0][2].map(r => [r.start.line, r.start.character, r.end.character]), [[0, 14, 18], [0, 32, 36]]);
+		// New colors and switching off.
+		vscode.config["pluto.highlight.nullableTypeColor"] = "#EEEEEE";
+		highlighter.rebuild();
+		assert(types[0].disposed && types.length == 2 && types[1].options.dark.color == "#EEEEEE");
+		vscode.config["pluto.highlight.nullableTypes"] = false;
+		highlighter.rebuild();
+		assert(types[1].disposed && highlighter.type === null);
+		const before = applied.length;
+		highlighter.apply(pEditor);
+		assert.strictEqual(applied.length, before);
+		highlighter.dispose();
+	}
+	finally
+	{
+		delete vscode.commands;
+		delete vscode.window.activeTextEditor;
+		delete vscode.window.createTextEditorDecorationType;
+		delete vscode.window.visibleTextEditors;
+		delete vscode.config["pluto.highlight.nullableTypeColor"];
+		delete vscode.config["pluto.highlight.nullableTypes"];
+	}
+});
+
+const { collectReturnTags, splitReturnTag, describeReturnType } = require("../src/returnTags");
+
+test("@return tags: parsing", function ()
+{
+	const builtin = (n) => ["void", "bool", "int", "string", "nil"].includes(n);
+	assert.deepStrictEqual(splitReturnTag("void Done when all are gone", "void", builtin), { type: "void", text: "Done when all are gone" });
+	assert.deepStrictEqual(splitReturnTag("Just a description", "void", builtin), { type: null, text: "Just a description" });
+	assert.deepStrictEqual(splitReturnTag("?string|nil - maybe a name", "string", builtin), { type: "?string|nil", text: "maybe a name" });
+	assert.deepStrictEqual(splitReturnTag("Human the new human", "Human", builtin), { type: "Human", text: "the new human" });
+	assert.deepStrictEqual(splitReturnTag("bool", "bool", builtin), { type: "bool", text: "" });
+	assert.deepStrictEqual(splitReturnTag("nil when it can't be told", "string|nil", builtin), { type: null, text: "nil when it can't be told" });
+
+	const lines = [
+		"--- @return bool above",           // 0 (doc, via sym.doc)
+		"function outer(): bool",             // 1
+		"    -- @return Description in body", // 2
+		"    local f = function()",           // 3
+		"        -- @return string inner",    // 4
+		"    end",                            // 5
+		"    --@returns bool plural form",    // 6
+		"    return true",                    // 7
+		"end",                                // 8
+	];
+	const tags = collectReturnTags({ doc: "@return bool above", line: 1, endLine: 8, returnType: "bool" }, lines, [{ line: 3, endLine: 5 }], builtin);
+	assert.deepStrictEqual(tags.map(t => [t.source, t.type, t.text]), [
+		["doc", "bool", "above"],
+		["body", null, "Description in body"],
+		["body", "bool", "plural form"],
+	]);
+	// A description is picked by the type under the cursor; a single tag answers for any type.
+	const two = [{ type: "int", text: "the count" }, { type: "string", text: "an error" }];
+	assert.strictEqual(describeReturnType(two, "string"), "an error");
+	assert.strictEqual(describeReturnType(two, "bool"), null);
+	assert.strictEqual(describeReturnType([{ type: null, text: "anything" }], "bool"), "anything");
+});
+
+test("hover/signature: @return written by the developer", function ()
+{
+	const src = (extra) => [
+		"--- Removes every vehicle.",
+		"function remove_all_vehicles(): void",
+		"    -- @return void Nothing; vehicles are deleted one by one",
+		"    print(1)",
+		"end",
+		"function plain(): bool",
+		"    -- @return Whether it worked",
+		"    return true",
+		"end",
+		"--- @return string The name",
+		"function named(): string return \"x\" end",
+		"function bare(): int return 1 end",
+		"class Box",
+		"end",
+		"function make(): Box",
+		"    -- @return Box The new box",
+		"    return new Box()",
+		"end",
+		"function nested(): int",
+		"    local f = function(): bool",
+		"        -- @return Inner only",
+		"        return true",
+		"    end",
+		"    return 1",
+		"end",
+		extra,
+	].join("\n");
+	const h = (marked) => hover(src(marked));
+
+	// Built-in type: the reference stays, the developer's text follows below.
+	const void_ = h("function again(): vo|id end");
+	assert(!void_.includes("Nothing"));
+	const onVoid = hover(src("") .replace("function remove_all_vehicles(): void", "function remove_all_vehicles(): vo|id"));
+	assert(onVoid.includes("(type) void") && onVoid.includes("No return value."), onVoid);
+	assert(onVoid.indexOf("**@return** Nothing; vehicles are deleted one by one") > onVoid.indexOf("No return value."), onVoid);
+	// Description without a type, and from the comment above the function.
+	assert(hover(src("").replace("function plain(): bool", "function plain(): bo|ol")).includes("**@return** Whether it worked"));
+	assert(hover(src("").replace("function named(): string", "function named(): str|ing")).includes("**@return** The name"));
+	// Nothing written, nothing added.
+	const bare = hover(src("").replace("function bare(): int", "function bare(): i|nt"));
+	assert(bare.includes("(type) int") && !bare.includes("@return"), bare);
+	// A class as return type: the class and then the comment.
+	const box = hover(src("").replace("function make(): Box", "function make(): B|ox"));
+	assert(box.includes("class Box") && box.includes("**@return** The new box"), box);
+	// Comments of a nested function belong to it.
+	const nested = hover(src("").replace("function nested(): int", "function nested(): i|nt"));
+	assert(!nested.includes("Inner only"), nested);
+	// Parameters are not return types.
+	assert(!hover(src("").replace("function plain(): bool", "function plain(a: in|t): bool")).includes("Whether it worked"));
+
+	// The function itself: the body's @return becomes part of its documentation.
+	const fn = hover(src("").replace("function remove_all_vehicles()", "function remove_all_veh|icles()"));
+	assert(fn.includes("Removes every vehicle.") && fn.includes("@return void Nothing; vehicles are deleted one by one"), fn);
+	assert.strictEqual(fn.split("@return void Nothing").length, 2, "not duplicated");
+	const named = hover(src("").replace("function named()", "function na|med()"));
+	assert.strictEqual(named.split("@return string The name").length, 2, "a comment above is not added twice");
+
+	// Signature help shows it too.
+	const sig = signature(src("remove_all_vehicles(|"));
+	assert(sig.signatures[0].documentation.value.includes("Removes every vehicle.") && sig.signatures[0].documentation.value.includes("@return void Nothing"), JSON.stringify(sig.signatures[0].documentation));
 });
 
 // ---------------------------------------------------------------------------------------------

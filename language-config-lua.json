@@ -1,0 +1,23 @@
+{
+	// Indentation for .lua files. Lua has no class/switch/try, so those words stay ordinary names here.
+	"onEnterRules": [
+		{
+			"beforeText": "(^\\s*\\b((local)?[\\s\\w=.:]+)?\\b(function|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^(?!\\s*--).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*$)",
+			"afterText": "^\\s*(end|until)\\b",
+			"action": {"indent":"indentOutdent"}
+		},
+		{
+			"beforeText": "(^\\s*\\b((local)?[\\s\\w=.:]+)?\\b(function|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^(?!\\s*--).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*$)",
+			"afterText": "^\\s*[)\\]}]",
+			"action": {"indent":"indentOutdent"}
+		},
+		{
+			"beforeText": "(^\\s*\\b((local)?[\\s\\w=.:]+)?\\b(function|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^(?!\\s*--).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*$)",
+			"action": {"indent":"indent"}
+		}
+	],
+	"indentationRules": {
+		"increaseIndentPattern": "(^\\s*\\b((local)?[\\s\\w=.:]+)?\\b(function|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^(?!\\s*--).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*$)",
+		"decreaseIndentPattern": "(^\\s*\\b(elseif|else|end|until)\\b.*$|^((?!\\{).)*\\}\\;?.*$)"
+	}
+}

@@ -12,6 +12,7 @@ const { Analyzer } = require("./analysis");
 const { createProviders, lineContext, SHOW_DECLARATIONS_COMMAND } = require("./providers");
 const { WorkspaceFilter } = require("./workspaceFilter");
 const { registerDiagnostics } = require("./diagnostics");
+const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEditor");
 
 const PLUTO_SELECTOR = [{ language: "pluto" }];
 // `.lua` files are matched by language and by extension, as they are plain text without a Lua extension.
@@ -378,13 +379,49 @@ function registerAutoClose(context, service)
 		const indent = /^\s*/.exec(openerText)[0];
 		const eol = document.eol == vscode.EndOfLine.CRLF ? "\r\n" : "\n";
 		const insertAt = newLine.range.end;
+		// The body of the block is indented one level deeper than its opener. VS Code normally does that
+		// on Enter; when it did not (auto-indent off or overridden), do it here so no Tab is needed.
+		const tab = tabSizeOf(editor);
+		const body = indent + indentUnit(editor);
+		const tooShallow = indentWidth(newLine.text, tab) <= indentWidth(indent, tab);
+		const hasNextLine = openerLine + 2 < document.lineCount;
 		busy = true;
 		editor.edit(function (builder)
 		{
-			builder.insert(insertAt, eol + indent + closer);
+			if (hasNextLine)
+			{
+				// The closer goes in front of the line below, not at the cursor: an edit at the cursor
+				// moves it off the new line, and VS Code then wipes the indentation it just put there
+				// (editor.trimAutoWhitespace).
+				builder.insert(new vscode.Position(openerLine + 2, 0), indent + closer + eol);
+				if (tooShallow)
+				{
+					builder.replace(newLine.range, body);
+				}
+			}
+			else if (tooShallow)
+			{
+				builder.replace(newLine.range, body + eol + indent + closer);
+			}
+			else
+			{
+				builder.insert(insertAt, eol + indent + closer);
+			}
 		}, { undoStopBefore: false, undoStopAfter: false }).then(function ()
 		{
-			// Keep the cursor on the (indented) empty line between opener and closer.
+			// Keep the cursor on the indented empty line between opener and closer.
+			const line = document.lineAt(openerLine + 1);
+			if (line.text.trim() == "" && indentWidth(line.text, tab) < indentWidth(body, tab))
+			{
+				// The indentation was wiped anyway (the cursor had to move): put it back.
+				return editor.edit(function (builder)
+				{
+					builder.replace(line.range, body);
+				}, { undoStopBefore: false, undoStopAfter: false }).then(function () { return true; });
+			}
+			return true;
+		}).then(function ()
+		{
 			const pos = new vscode.Position(openerLine + 1, document.lineAt(openerLine + 1).text.length);
 			editor.selection = new vscode.Selection(pos, pos);
 			busy = false;
@@ -393,6 +430,39 @@ function registerAutoClose(context, service)
 			busy = false;
 		});
 	}));
+}
+
+function tabSizeOf(editor)
+{
+	return Number(editor.options.tabSize) || 4;
+}
+
+/** One level of indentation as the editor is set up: a tab, or `tabSize` spaces. */
+function indentUnit(editor)
+{
+	return editor.options.insertSpaces === false ? "\t" : " ".repeat(tabSizeOf(editor));
+}
+
+/** Width of leading whitespace, a tab counting as `tab` columns. */
+function indentWidth(text, tab)
+{
+	let width = 0;
+	for (const c of text)
+	{
+		if (c == " ")
+		{
+			++width;
+		}
+		else if (c == "\t")
+		{
+			width += tab;
+		}
+		else
+		{
+			break;
+		}
+	}
+	return width;
 }
 
 function hasUnclosedRepeat(record, line)
@@ -466,7 +536,7 @@ function registerLanguageProviders(context, service, providers)
 			dispose();
 			controller.selector = selector;
 			registered = [
-				vscode.languages.registerCompletionItemProvider(selector, providers.completionProvider, ".", ":", "\"", "'"),
+				vscode.languages.registerCompletionItemProvider(selector, providers.completionProvider, ".", ":", "\"", "'", " "),
 				vscode.languages.registerHoverProvider(selector, providers.hoverProvider),
 				vscode.languages.registerSignatureHelpProvider(selector, providers.signatureProvider, "(", ","),
 				vscode.languages.registerDefinitionProvider(selector, providers.definitionProvider),
@@ -497,6 +567,8 @@ function activate(context)
 		vscode.languages.registerWorkspaceSymbolProvider(providers.workspaceSymbolProvider)
 	);
 	registerAutoClose(context, service);
+	registerTypeAutoTrigger(context);
+	registerNullableHighlight(context);
 
 	// Keep the index in sync with editors and the file system.
 	context.subscriptions.push(

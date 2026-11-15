@@ -361,6 +361,35 @@ async function main()
     checkIndentation("$declare function tonumber(str: string, base: ?number): number", false, false);
     checkIndentation("local entry", false, false);
 
+    // Type hints are highlighted with or without a space after the colon; method calls are not types.
+    const checkScope = function (code, word, scope, expected)
+    {
+        const { tokens } = grammar.tokenizeLine(code);
+        const token = tokens.find(t => code.slice(t.startIndex, t.endIndex) == word);
+        const has = !!token && token.scopes.includes(scope);
+        if (has != expected)
+        {
+            console.log(`Scope mismatch: ${word} in ${code} should ${expected ? "" : "not "}be ${scope}`);
+            ok = false;
+        }
+    };
+    for (const [code, word] of [
+        ["function f(a: int, b: string): bool", "bool"],
+        ["function f(a:int, b:string):bool", "bool"],
+        ["function f(a:int, b:string):bool", "string"],
+        ["function f(a:int?, b:?string)", "int?"],
+        ["function f(a:int?, b:?string)", "?string"],
+        ["local x:int = 1", "int"],
+        ["local x: int = 1", "int"],
+        ["local x:Vehicle? = nil", "Vehicle?"],
+    ])
+    {
+        checkScope(code, word, "storage.type.primitive.pluto", true);
+    }
+    checkScope("obj:method(1)", "method", "storage.type.primitive.pluto", false);
+    checkScope("obj:method(1)", "method", "meta.method-call.pluto", true);
+    checkScope("x = a ? b : c", "c", "storage.type.primitive.pluto", false);
+
     if (!ok)
     {
         process.exit(1);

@@ -10,7 +10,7 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.14.0",
+	"version": "0.15.4",
 	"publisher": "calamity-inc",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -42,6 +42,10 @@
 					"light": "icon-flat.png",
 					"dark": "icon-flat.png"
 				}
+			},
+			{
+				"id": "lua",
+				"configuration": "./language-config-lua.json"
 			}
 		],
 		"grammars": [
@@ -162,6 +166,11 @@
 					"default": true,
 					"description": "Suggest other words of the current document."
 				},
+				"pluto.completion.autoTriggerTypes": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Open the list of types by itself when typing a type hint in a Pluto file: after `:` in `function f(a: `, `function f(): ` and `local x: `. Method calls such as `obj:method` are not affected. The list offers built-in types and the classes of the workspace, each also as nullable (`int?`)."
+				},
 				"pluto.outline.showFunctionBody": {
 					"type": "boolean",
 					"default": true,
@@ -250,6 +259,21 @@
 					"minimum": 1,
 					"description": "Number of declarations shown in a hover when several declarations share a name. A link below them opens the list of all."
 				},
+				"pluto.highlight.nullableTypes": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Highlight nullable types (`int?`, `?string`, `Vehicle?`) in type hints of Pluto files."
+				},
+				"pluto.highlight.nullableTypeColor": {
+					"type": "string",
+					"default": "#FFFFFF",
+					"markdownDescription": "Color of nullable types in dark and high contrast themes. Any CSS color, e.g. `#FFFFFF`."
+				},
+				"pluto.highlight.nullableTypeLightColor": {
+					"type": "string",
+					"default": "#000000",
+					"markdownDescription": "Color of nullable types in light themes, where white would be invisible."
+				},
 				"pluto.autoCloseBlocks": {
 					"type": "boolean",
 					"default": true,
@@ -282,6 +306,14 @@
 					"when": "false"
 				}
 			]
+		},
+		"configurationDefaults": {
+			"[pluto]": {
+				"editor.autoIndent": "full"
+			},
+			"[lua]": {
+				"editor.autoIndent": "full"
+			}
 		}
 	},
 	"main": "./src/extension.js",

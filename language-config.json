@@ -32,13 +32,28 @@
 	"onEnterRules": [
 		{
 			"beforeText": "^\\s*---",
-			"action": { "indent": "none", "appendText": "--- " }
+			"action": {"indent":"none","appendText":"--- "}
+		},
+		{
+			"beforeText": "(^\\s*\\$?(?!declare\\s+function\\b)\\b((local)?[\\s\\w=]+)?\\b(function(?!\\s*\\([^)]*\\)\\s*:)|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while|class|pluto_class|enum|pluto_enum|try|pluto_try|catch|pluto_catch)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^\\s*(case\\b.*|default)\\s*:\\s*$|^(?!\\s*(?:--|\\$)).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*(:\\s*[\\w?|.]+\\s*)?$)",
+			"afterText": "^\\s*(end|until)\\b",
+			"action": {"indent":"indentOutdent"}
+		},
+		{
+			"beforeText": "(^\\s*\\$?(?!declare\\s+function\\b)\\b((local)?[\\s\\w=]+)?\\b(function(?!\\s*\\([^)]*\\)\\s*:)|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while|class|pluto_class|enum|pluto_enum|try|pluto_try|catch|pluto_catch)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^\\s*(case\\b.*|default)\\s*:\\s*$|^(?!\\s*(?:--|\\$)).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*(:\\s*[\\w?|.]+\\s*)?$)",
+			"afterText": "^\\s*[)\\]}]",
+			"action": {"indent":"indentOutdent"}
+		},
+		{
+			"beforeText": "(^\\s*\\$?(?!declare\\s+function\\b)\\b((local)?[\\s\\w=]+)?\\b(function(?!\\s*\\([^)]*\\)\\s*:)|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while|class|pluto_class|enum|pluto_enum|try|pluto_try|catch|pluto_catch)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^\\s*(case\\b.*|default)\\s*:\\s*$|^(?!\\s*(?:--|\\$)).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*(:\\s*[\\w?|.]+\\s*)?$)",
+			"action": {"indent":"indent"}
 		}
 	],
 	// Keep in sync with Pluto.tmbundle/Preferences/Indentation Rules.tmPreferences
-	// The matching `end` is inserted by the extension (src/extension.js), as that can't be expressed here.
+	// Enter between an opener and `end` (indentOutdent) and after an opener (indent) is handled by onEnterRules above;
+	// the matching `end` is inserted by the extension (src/extension.js), as that can't be expressed here.
 	"indentationRules": {
-		"increaseIndentPattern": "(^\\s*\\$?(?!declare\\s+function\\b)\\b((local)?[\\s\\w=]+)?\\b(function(?!\\s*\\([^)]*\\)\\s*:)|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while|class|pluto_class|enum|pluto_enum|try|pluto_try)\\b((?!\\bend\\b).)*$|^.*\\b(do|then)\\b((?!\\bend\\b).)*$|^.*\\{((?!\\}).)*$)",
-		"decreaseIndentPattern": "(^\\s*\\$?\\b(elsei|elseif|else|catch|pluto_catch|end|until)\\b.*$|^((?!\\{).)*\\}\\;?.*$)"
+		"increaseIndentPattern": "(^\\s*\\$?(?!declare\\s+function\\b)\\b((local)?[\\s\\w=]+)?\\b(function(?!\\s*\\([^)]*\\)\\s*:)|repeat(?![^\\n]*\\buntil\\b)|else|elseif|if|while|class|pluto_class|enum|pluto_enum|try|pluto_try|catch|pluto_catch)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\b(do|then)\\b((?!\\bend\\b).)*$|^(?!\\s*--).*\\{((?!\\}).)*$|^\\s*(case\\b.*|default)\\s*:\\s*$|^(?!\\s*(?:--|\\$)).*[(,=]\\s*function\\s*\\([^)]*\\)\\s*(:\\s*[\\w?|.]+\\s*)?$)",
+		"decreaseIndentPattern": "(^\\s*\\$?\\b(elsei|elseif|else|catch|pluto_catch|end|until)\\b.*$|^((?!\\{).)*\\}\\;?.*$|^\\s*(case\\b.*|default)\\s*:\\s*$)"
 	}
 }
