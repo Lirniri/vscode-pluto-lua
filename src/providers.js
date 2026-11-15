@@ -9,7 +9,8 @@ const { collectReturnTags, describeReturnType } = require("./returnTags");
 const { isTypeHintPosition, isNullableType, describeNullable } = require("./typeHints");
 const builtins = require("./builtins");
 const { formatSignature, formatParams, computeFolding } = require("./parser");
-const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES } = require("./analysis");
+const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES, primitiveDoc } = require("./analysis");
+const { t } = require("./i18n");
 
 const SYMBOL_KINDS = {
 	class: vscode.SymbolKind.Class,
@@ -24,6 +25,7 @@ const SYMBOL_KINDS = {
 
 /** Command run by the "show all declarations" link of hovers. */
 const SHOW_DECLARATIONS_COMMAND = "pluto-syntax-highlighting.showDeclarations";
+const PEEK_CODE_COMMAND = "pluto-syntax-highlighting.peekCode";
 
 /** Upper bound of calls/returns listed under a single function in the Outline. */
 const MAX_CALLS_PER_FUNCTION = 50;
@@ -124,7 +126,7 @@ function createProviders(service)
 		const uri = uriOf(sym.file).with({ fragment: "L" + line }).toString();
 		if (fromFile && sym.file.key == fromFile.key)
 		{
-			return "[Line " + line + "](" + uri + ")";
+			return "[" + t("hover.line", line) + "](" + uri + ")";
 		}
 		const rel = relPath(sym.file);
 		const label = mode == "relative" ? rel : rel.slice(rel.lastIndexOf("/") + 1);
@@ -329,7 +331,7 @@ function createProviders(service)
 		if (resolved && resolved.manifest)
 		{
 			const m = resolved.manifest;
-			md.appendCodeblock("(module) " + m.id + (m.version ? " " + m.version : ""), "pluto");
+			md.appendCodeblock(t("label.module") + " " + m.id + (m.version ? " " + m.version : ""), "pluto");
 			if (m.name && m.name != m.id)
 			{
 				md.appendMarkdown("**" + m.name + "**\n\n");
@@ -338,19 +340,19 @@ function createProviders(service)
 			{
 				md.appendMarkdown(m.description + "\n\n");
 			}
-			md.appendMarkdown("*Manifest:* [" + vscode.workspace.asRelativePath(m.path) + "](" + vscode.Uri.file(m.path).toString() + ")");
+			md.appendMarkdown("*" + t("hover.manifest") + "* [" + vscode.workspace.asRelativePath(m.path) + "](" + vscode.Uri.file(m.path).toString() + ")");
 			return md;
 		}
 		if (resolved && resolved.file)
 		{
-			md.appendCodeblock("(module) " + moduleName, "pluto");
-			md.appendMarkdown("*File:* [" + relPath(resolved.file) + "](" + uriOf(resolved.file).toString() + ")");
+			md.appendCodeblock(t("label.module") + " " + moduleName, "pluto");
+			md.appendMarkdown("*" + t("hover.file") + "* [" + relPath(resolved.file) + "](" + uriOf(resolved.file).toString() + ")");
 			return md;
 		}
 		const lib = builtins.libForModule(moduleName);
 		if (lib)
 		{
-			md.appendCodeblock("(built-in module) " + (moduleName.startsWith("pluto:") ? moduleName : "pluto:" + moduleName), "pluto");
+			md.appendCodeblock(t("label.builtinModule") + " " + (moduleName.startsWith("pluto:") ? moduleName : "pluto:" + moduleName), "pluto");
 			md.appendMarkdown(builtins.libs.get(lib).doc || "");
 			const names = (builtins.members.get(lib) || []).map(e => "`" + e.short + "`");
 			if (names.length)
@@ -409,12 +411,12 @@ function createProviders(service)
 		};
 		for (const m of index.manifests.values())
 		{
-			add(m.id, "module" + (m.version ? " " + m.version : "") + " — " + vscode.workspace.asRelativePath(m.path),
+			add(m.id, t("completion.module") + (m.version ? " " + m.version : "") + " — " + vscode.workspace.asRelativePath(m.path),
 				[m.name && m.name != m.id ? "**" + m.name + "**" : "", m.description || ""].filter(Boolean).join("\n\n"), "0");
 		}
 		for (const m of builtins.modules)
 		{
-			add(m.id, "built-in module", m.doc, "1");
+			add(m.id, t("completion.builtinModule"), m.doc, "1");
 		}
 		// Files of the workspace, as module paths relative to the requiring file or its workspace folder.
 		const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -464,10 +466,11 @@ const typeItems = function (file, line, glue)
 		return item;
 	};
 	const builtinKind = vscode.CompletionItemKind.TypeParameter || vscode.CompletionItemKind.Keyword;
-	for (const [name, doc] of PRIMITIVE_TYPES)
+	for (const name of PRIMITIVE_TYPES.keys())
 	{
+		const doc = primitiveDoc(name);
 		const item = new vscode.CompletionItem(name, builtinKind);
-		item.detail = "(type) " + name;
+		item.detail = t("label.type") + " " + name;
 		item.documentation = new vscode.MarkdownString(doc);
 		item.sortText = "0" + name;
 		items.push(item);
@@ -789,8 +792,8 @@ const completionProvider = {
 				if (!md)
 				{
 					md = new vscode.MarkdownString();
-					md.appendCodeblock("(type) " + chain.word, "pluto");
-					md.appendMarkdown(PRIMITIVE_TYPES.get(chain.word));
+					md.appendCodeblock(t("label.type") + " " + chain.word, "pluto");
+					md.appendMarkdown(primitiveDoc(chain.word));
 				}
 				return new vscode.Hover(returnDoc ? [md, returnDoc] : md, hoverRange);
 			}
@@ -824,14 +827,14 @@ const completionProvider = {
 			{
 				const info = builtins.libs.get(resolved.lib);
 				const md = new vscode.MarkdownString();
-				md.appendCodeblock("(library) " + resolved.lib, "pluto");
-				md.appendMarkdown(info.doc + (info.require ? "\n\nRequires `local " + resolved.lib + " = require \"pluto:" + resolved.lib + "\"`" : ""));
+				md.appendCodeblock(t("label.library") + " " + resolved.lib, "pluto");
+				md.appendMarkdown(info.doc + (info.require ? "\n\n" + t("hover.requires", resolved.lib) : ""));
 				contents.push(md);
 			}
 			if (resolved.keyword && chain.parts.length == 1)
 			{
 				const md = new vscode.MarkdownString();
-				md.appendCodeblock("(keyword) " + resolved.keyword.name, "pluto");
+				md.appendCodeblock(t("label.keyword") + " " + resolved.keyword.name, "pluto");
 				md.appendMarkdown(resolved.keyword.doc);
 				contents.push(md);
 			}
@@ -839,12 +842,20 @@ const completionProvider = {
 			{
 				contents.push(returnDoc);
 			}
+			if (resolved.symbols.some(sym => sym.file))
+			{
+				// Only text generated here goes into a trusted string.
+				const peekArgs = encodeURIComponent(JSON.stringify([document.uri.toString(), position.line, chain.start]));
+				const peek = new vscode.MarkdownString("[$(preview) " + t("hover.peekCode") + "](command:" + PEEK_CODE_COMMAND + "?" + peekArgs + " \"" + t("hover.peekCodeTooltip") + "\")", true);
+				peek.isTrusted = { enabledCommands: [PEEK_CODE_COMMAND] };
+				contents.push(peek);
+			}
 			if (resolved.symbols.length > 1)
 			{
 				// Only text generated here goes into a trusted string: doc comments of the workspace must
 				// never be able to run commands.
 				const args = encodeURIComponent(JSON.stringify([document.uri.toString(), position.line, chain.start]));
-				const link = new vscode.MarkdownString("[Показать все объявления (" + resolved.symbols.length + ")](command:" + SHOW_DECLARATIONS_COMMAND + "?" + args + " \"Открыть список всех объявлений\")");
+				const link = new vscode.MarkdownString("[" + t("declarations.showAll", resolved.symbols.length) + "](command:" + SHOW_DECLARATIONS_COMMAND + "?" + args + " \"" + t("declarations.showAllTooltip") + "\")");
 				link.isTrusted = { enabledCommands: [SHOW_DECLARATIONS_COMMAND] };
 				contents.push(link);
 			}
@@ -872,6 +883,22 @@ const completionProvider = {
 		if (locations.length)
 		{
 			await vscode.commands.executeCommand("editor.action.showReferences", uri, new vscode.Position(line, character), locations);
+		}
+	};
+
+	/**
+	 * Command behind the hover's "Peek Code" link: always opens the wide peek widget (code on the
+	 * left, list of locations on the right), even for a single definition.
+	 */
+	const peekCode = async function (uriString, line, character)
+	{
+		const uri = vscode.Uri.parse(uriString, true);
+		const position = new vscode.Position(line, character);
+		const found = await vscode.commands.executeCommand("vscode.executeDefinitionProvider", uri, position);
+		const locations = (found || []).map(l => l.targetUri ? new vscode.Location(l.targetUri, l.targetSelectionRange || l.targetRange) : l);
+		if (locations.length)
+		{
+			await vscode.commands.executeCommand("editor.action.goToLocations", uri, position, locations, "peek");
 		}
 	};
 
@@ -1443,6 +1470,7 @@ const completionProvider = {
 		signatureProvider,
 		definitionProvider,
 		showDeclarations,
+		peekCode,
 		documentSymbolProvider,
 		workspaceSymbolProvider,
 		foldingProvider,
@@ -1484,4 +1512,4 @@ function fuzzyContains(haystack, needle)
 	return needle.length == 0;
 }
 
-module.exports = { createProviders, lineContext, stringAt, SHOW_DECLARATIONS_COMMAND, isTypeHintPosition };
+module.exports = { createProviders, lineContext, stringAt, SHOW_DECLARATIONS_COMMAND, PEEK_CODE_COMMAND, isTypeHintPosition };

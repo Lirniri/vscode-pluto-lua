@@ -6,6 +6,7 @@
 "use strict";
 
 const generated = require("./builtins.generated.json");
+const { t } = require("./i18n");
 
 /**
  * @typedef {{ name: string, lib: string|null, short: string, params?: { name: string, doc?: string }[]|null, doc: string, returns?: string, method?: boolean, overloaded?: boolean, aliases?: string[] }} Builtin
@@ -258,15 +259,15 @@ function formatBuiltinDoc(entry)
 	}
 	if (entry.returns && !entry.doc.startsWith("Returns: "))
 	{
-		out.push("**Returns:** " + entry.returns);
+		out.push("**" + t("builtin.returns") + "** " + entry.returns);
 	}
 	if (entry.overloaded)
 	{
-		out.push("*The parameters of this function depend on the mode; see the Pluto documentation.*");
+		out.push(t("builtin.overloaded"));
 	}
 	if (entry.aliases && entry.aliases.length)
 	{
-		out.push("Aliases: " + entry.aliases.map(a => "`" + a + "`").join(", "));
+		out.push(t("builtin.aliases") + " " + entry.aliases.map(a => "`" + a + "`").join(", "));
 	}
 	const root = entry.lib ? entry.lib.split(".")[0] : null;
 	if (root && libs.get(root) && libs.get(root).require)

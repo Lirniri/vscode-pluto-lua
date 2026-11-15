@@ -9,10 +9,11 @@
 const vscode = require("vscode");
 const { WorkspaceIndex } = require("./workspaceIndex");
 const { Analyzer } = require("./analysis");
-const { createProviders, lineContext, SHOW_DECLARATIONS_COMMAND } = require("./providers");
+const { createProviders, lineContext, SHOW_DECLARATIONS_COMMAND, PEEK_CODE_COMMAND } = require("./providers");
 const { WorkspaceFilter } = require("./workspaceFilter");
 const { registerDiagnostics } = require("./diagnostics");
 const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEditor");
+const { t, resolveLanguage, setLanguage } = require("./i18n");
 
 const PLUTO_SELECTOR = [{ language: "pluto" }];
 // `.lua` files are matched by language and by extension, as they are plain text without a Lua extension.
@@ -478,7 +479,7 @@ function registerCommands(context, service)
 		const editor = vscode.window.activeTextEditor;
 		if (!editor)
 		{
-			vscode.window.showWarningMessage("Open a Pluto script first.");
+			vscode.window.showWarningMessage(t("cmd.openScript"));
 			return;
 		}
 		vscode.tasks.executeTask(new vscode.Task(
@@ -491,17 +492,17 @@ function registerCommands(context, service)
 	};
 	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.run", function ()
 	{
-		runInTerminalTask("Pluto: Run Script", "pluto", []);
+		runInTerminalTask(t("task.run"), "pluto", []);
 	}));
 	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.lint", function ()
 	{
-		runInTerminalTask("Pluto: Lint Script", "plutoc", ["-p"]);
+		runInTerminalTask(t("task.lint"), "plutoc", ["-p"]);
 	}));
 	context.subscriptions.push(vscode.commands.registerCommand("pluto-syntax-highlighting.reindex", async function ()
 	{
-		await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: "Pluto: indexing workspace…" }, () => service.scan());
-		vscode.window.setStatusBarMessage("Pluto: indexed " + service.index.files.size + " files, " + service.index.manifests.size + " module manifests"
-			+ (service.excludedCount ? ", " + service.excludedCount + " excluded" : ""), 5000);
+		await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: t("status.indexing") }, () => service.scan());
+		vscode.window.setStatusBarMessage(t("status.indexed", service.index.files.size, service.index.manifests.size)
+			+ (service.excludedCount ? t("status.excluded", service.excludedCount) : ""), 5000);
 	}));
 }
 
@@ -552,10 +553,24 @@ function registerLanguageProviders(context, service, providers)
 }
 
 /**
+ * Sets the language of the messages: `pluto.language` (`auto` follows the editor's display language,
+ * `vscode.env.language`; Russian for `ru`/`ru-RU`, English otherwise).
+ * @returns {"en"|"ru"}
+ */
+function applyLanguage()
+{
+	const setting = vscode.workspace.getConfiguration("pluto").get("language", "auto");
+	const language = resolveLanguage(setting, vscode.env && vscode.env.language);
+	setLanguage(language);
+	return language;
+}
+
+/**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context)
 {
+	applyLanguage();
 	const service = new LanguageService();
 	context.subscriptions.push(service);
 	registerCommands(context, service);
@@ -564,6 +579,7 @@ function activate(context)
 	const languageProviders = registerLanguageProviders(context, service, providers);
 	context.subscriptions.push(
 		vscode.commands.registerCommand(SHOW_DECLARATIONS_COMMAND, providers.showDeclarations),
+		vscode.commands.registerCommand(PEEK_CODE_COMMAND, providers.peekCode),
 		vscode.languages.registerWorkspaceSymbolProvider(providers.workspaceSymbolProvider)
 	);
 	registerAutoClose(context, service);
@@ -609,6 +625,10 @@ function activate(context)
 		}),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
+			if (event.affectsConfiguration("pluto.language"))
+			{
+				applyLanguage(); // hovers and diagnostics are built from the dictionary on demand
+			}
 			if (event.affectsConfiguration("pluto.lua"))
 			{
 				// Takes effect at once: providers are re-registered, the index rebuilt (diagnostics follow on their own).
@@ -678,7 +698,7 @@ function activate(context)
 	{
 		console.error("Pluto: failed to index workspace", e);
 	});
-	vscode.window.setStatusBarMessage("$(sync~spin) Pluto: indexing workspace…", indexed);
+	vscode.window.setStatusBarMessage("$(sync~spin) " + t("status.indexing"), indexed);
 
 	const diagnostics = registerDiagnostics(context, service, indexed);
 
@@ -687,4 +707,4 @@ function activate(context)
 
 function deactivate() {}
 
-module.exports = { activate, deactivate, LanguageService, closerFor, registerLanguageProviders, selectorFor };
+module.exports = { activate, deactivate, LanguageService, closerFor, registerLanguageProviders, selectorFor, applyLanguage };

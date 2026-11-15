@@ -4,6 +4,7 @@
 "use strict";
 
 const { tokenize } = require("./parser");
+const { t } = require("./i18n");
 
 // The text before the type being typed, e.g. `function f(ped: ?int|` or `local count: `.
 const TYPE_TAIL = ":\\s*(?:[?\\w.]+\\s*\\|\\s*)*\\??\\s*$";
@@ -47,8 +48,8 @@ function describeNullable(type)
 	const written = type.replace(/\s+/g, "");
 	const base = written.replace(/^\?|\?$/g, "");
 	return {
-		title: "(nullable type) " + written,
-		text: "Can be `" + base + "` or `nil` (optional / nullable)",
+		title: t("label.nullableType") + " " + written,
+		text: t("nullable.text", base),
 	};
 }
 

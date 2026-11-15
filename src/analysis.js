@@ -5,6 +5,7 @@
 
 const { tokenize } = require("./parser");
 const builtins = require("./builtins");
+const { t } = require("./i18n");
 
 const IDENT = "[A-Za-z_\\u0080-\\uFFFF][A-Za-z0-9_\\u0080-\\uFFFF]*";
 const CHAIN_BEFORE = new RegExp("((?:" + IDENT + "\\s*(?:\\?\\.|\\.|:)\\s*)*)(" + IDENT + ")?$");
@@ -103,6 +104,15 @@ const PRIMITIVE_TYPES = new Map([
 	["any", "Any type."],
 	["mixed", "Any type."],
 ]);
+
+/**
+ * Description of a built-in type in the current language.
+ * @param {string} name
+ */
+function primitiveDoc(name)
+{
+	return t("type." + name);
+}
 
 /**
  * Whether the word at [start, end) of a line is (part of) a type hint, e.g. `int` in
@@ -778,4 +788,4 @@ function findCall(text)
 	return null;
 }
 
-module.exports = { Analyzer, chainBefore, chainAt, requireAt, findCall, normalizeType, splitChain, typeAnnotationAt, PRIMITIVE_TYPES };
+module.exports = { Analyzer, chainBefore, chainAt, requireAt, findCall, normalizeType, splitChain, typeAnnotationAt, PRIMITIVE_TYPES, primitiveDoc };

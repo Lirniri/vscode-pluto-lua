@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const childProcess = require("child_process");
+const { t } = require("./i18n");
 
 const IS_WINDOWS = process.platform == "win32";
 
@@ -233,7 +234,7 @@ function findCompiler(options)
 		{
 			return { path: expanded, source: "setting" };
 		}
-		problem = "pluto.diagnostics.compilerPath points to '" + expanded + "', which is not an executable file. Falling back to automatic detection.";
+		problem = t("compiler.notExecutable", expanded);
 	}
 	if (options.allowWorkspace !== false)
 	{

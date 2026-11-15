@@ -7,6 +7,7 @@
 const { tokenize, RESERVED } = require("./parser");
 const builtins = require("./builtins");
 const { normalizePath } = require("./workspaceIndex");
+const { t } = require("./i18n");
 
 /**
  * @typedef {{ line: number, col: number, endLine: number, endCol: number, severity: "error"|"warning", message: string, code: string }} LintProblem
@@ -82,7 +83,7 @@ function lintRequires(file, index, options, out)
 			endLine: req.line,
 			endCol: req.endCol !== undefined ? req.endCol : 0,
 			severity: "warning",
-			message: "Module '" + name + "' not found: no matching .pluto or .lua file in the workspace.",
+			message: t("lint.missingModule", name),
 			code: "missing-module",
 		});
 	}
@@ -175,8 +176,8 @@ function lintCalls(text, file, analyzer, out)
 			endLine: end.line,
 			endCol: end.col + 1,
 			severity: "warning",
-			message: "'" + display + "' expects at least " + shownNeeded + " argument" + (shownNeeded == 1 ? "" : "s")
-				+ " but got " + args.count + "." + (missing.length ? " Required: " + missing.join(", ") + "." : ""),
+			message: t(shownNeeded == 1 ? "lint.missingArgs.one" : "lint.missingArgs.many", display, shownNeeded, args.count)
+				+ (missing.length ? t("lint.required", missing.join(", ")) : ""),
 			code: "missing-arguments",
 		});
 	}
@@ -444,8 +445,8 @@ function lintManifest(text, path, index, options)
 	{
 		const k = findKey(text, "id");
 		out.push(k
-			? problemAt(text, k.keyStart, k.keyEnd, "error", "'id' must be a non-empty string.", "manifest-id")
-			: problemAt(text, firstBrace, firstBrace + 1, "error", "Missing required field 'id'.", "manifest-id"));
+			? problemAt(text, k.keyStart, k.keyEnd, "error", t("manifest.idEmpty"), "manifest-id")
+			: problemAt(text, firstBrace, firstBrace + 1, "error", t("manifest.idMissing"), "manifest-id"));
 	}
 
 	for (const field of ["entry", "main"])
@@ -459,7 +460,7 @@ function lintManifest(text, path, index, options)
 		const range = k ? valueRange(text, k.valueStart) : { start: firstBrace, end: firstBrace + 1 };
 		if (typeof value != "string" || !value.trim())
 		{
-			out.push(problemAt(text, range.start, range.end, "error", "'" + field + "' must be a path to a .pluto or .lua file.", "manifest-entry"));
+			out.push(problemAt(text, range.start, range.end, "error", t("manifest.entryType", field), "manifest-entry"));
 			continue;
 		}
 		const target = dir + "/" + normalizePath(value).replace(/^\.\//, "");
@@ -467,7 +468,7 @@ function lintManifest(text, path, index, options)
 		const indexed = [...index.files.values()].some(f => f.path.toLowerCase() == lower);
 		if (!indexed && !(options.exists && options.exists(target)))
 		{
-			out.push(problemAt(text, range.start, range.end, "error", "Entry file '" + value + "' does not exist.", "manifest-entry"));
+			out.push(problemAt(text, range.start, range.end, "error", t("manifest.entryMissing", value), "manifest-entry"));
 		}
 	}
 
@@ -492,7 +493,7 @@ function lintManifest(text, path, index, options)
 		}
 		else
 		{
-			out.push(problemAt(text, depsRange.start, depsRange.end, "error", "'dependencies' must be an array of module ids.", "manifest-dependencies"));
+			out.push(problemAt(text, depsRange.start, depsRange.end, "error", t("manifest.depsType"), "manifest-dependencies"));
 		}
 		let searchFrom = depsStart;
 		for (const id of ids)
@@ -514,8 +515,8 @@ function lintManifest(text, path, index, options)
 			if (!known.has(id))
 			{
 				out.push(at != -1
-					? problemAt(text, at, at + quoted.length, "warning", "Unknown dependency '" + id + "': no info.json with this id in the workspace.", "manifest-dependency")
-					: problemAt(text, depsRange.start, depsRange.end, "warning", "Unknown dependency '" + id + "': no info.json with this id in the workspace.", "manifest-dependency"));
+					? problemAt(text, at, at + quoted.length, "warning", t("manifest.depUnknown", id), "manifest-dependency")
+					: problemAt(text, depsRange.start, depsRange.end, "warning", t("manifest.depUnknown", id), "manifest-dependency"));
 			}
 		}
 	}

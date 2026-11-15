@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const { lintSource, lintManifest } = require("./lint");
 const compiler = require("./compiler");
+const { t } = require("./i18n");
 
 const MANIFEST = /(^|\/)info\.json$/i;
 
@@ -72,7 +73,7 @@ class DiagnosticsManager
 			if (!this._trusted())
 			{
 				this._compiler_ = { path: null, source: null };
-				this._log("Workspace is not trusted: the Pluto compiler is not used, only built-in checks run.");
+				this._log(t("diag.untrusted"));
 				return this._compiler_;
 			}
 			const folders = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme == "file").map(f => f.uri.fsPath);
@@ -82,8 +83,8 @@ class DiagnosticsManager
 				this._log(found.problem);
 			}
 			this._log(found.path
-				? "Using Pluto compiler " + found.path + " (" + { setting: "from pluto.diagnostics.compilerPath", workspace: "found in the workspace", path: "found on PATH" }[found.source] + ")."
-				: "No Pluto compiler found (pluto.diagnostics.compilerPath, workspace, PATH): only built-in checks run.");
+				? t("diag.using", found.path, t("diag.source." + found.source))
+				: t("diag.none"));
 			this._compiler_ = found;
 		}
 		return this._compiler_;
@@ -273,7 +274,7 @@ class DiagnosticsManager
 			if (result.error)
 			{
 				// The compiler can't be started (deleted, no permission…): stop using it, quietly.
-				this._log("Failed to run " + found.path + ": " + result.error.message + ". The compiler is disabled until settings change.");
+				this._log(t("diag.failedToRun", found.path, result.error.message));
 				this._compiler_ = { path: null, source: null };
 				this._compiler.delete(key);
 				this._publish(document.uri);
@@ -281,14 +282,14 @@ class DiagnosticsManager
 			}
 			if (result.timedOut)
 			{
-				this._log("Pluto compiler timed out on " + document.uri.fsPath + ".");
+				this._log(t("diag.timeout", document.uri.fsPath));
 				return;
 			}
 			const lines = text.split(/\r?\n/);
 			const problems = compiler.parseCompilerOutput(result.output, lines);
 			if (!problems.length && result.code)
 			{
-				this._log("Pluto compiler exited with code " + result.code + " without a recognizable message:\n" + result.output.trim());
+				this._log(t("diag.exitCode", result.code, result.output.trim()));
 			}
 			const diagnostics = problems.map((p) =>
 			{
@@ -418,7 +419,11 @@ function registerDiagnostics(context, service, indexed)
 		vscode.workspace.onDidCloseTextDocument(document => manager.clear(document.uri)),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
-			if (event.affectsConfiguration("pluto.lua"))
+			if (event.affectsConfiguration("pluto.language"))
+			{
+				manager.recheckAll(false); // the messages of the built-in checks change with the language
+			}
+			else if (event.affectsConfiguration("pluto.lua"))
 			{
 				manager.recheckAll(false);
 				manager.recheckSoon(); // once the index has been rebuilt

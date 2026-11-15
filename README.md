@@ -33,10 +33,15 @@ The language features also work in `.lua` files (switch them off with `pluto.lua
 | `fori`, `forp`, `forip`, `fora` | Numeric, `pairs`, `ipairs`, and for-as loops |
 | `enum`, `req`, `pluto_use` | Enumeration, `require "pluto:..."`, `pluto_use "version"` |
 
+### Languages (English and Russian)
+
+The messages of the extension (labels in hovers and completion, built-in diagnostics, status and output texts) come in English and Russian. `pluto.language` is `auto` by default: Russian when the display language of the editor is Russian (`ru`, `ru-RU`), English otherwise. Set it to `en` or `ru` to pin the language; it changes on the fly, no reload needed. The names and descriptions of settings and commands are localized by VS Code itself through `package.nls.json` / `package.nls.ru.json` and follow its display language (*Configure Display Language*). Texts of the Pluto compiler and the built-in library documentation stay in English.
+
 ### Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `pluto.language` | `auto` | Language of the extension's messages: `auto` (follow the editor), `en` or `ru`. |
 | `pluto.index.enabled` | `true` | Index the whole workspace; otherwise only open files are analyzed. |
 | `pluto.lua.enable` | `true` | Language features (completion, hover, go to definition, signature help, outline, folding, diagnostics) for `.lua` files. Turn off if e.g. `sumneko.lua` already provides them; takes effect immediately. |
 | `pluto.lua.indexFiles` | `true` | Read `.lua` files into the index so Pluto code gets completion and navigation into the Lua modules it requires. Independent of `pluto.lua.enable`. |
@@ -56,7 +61,7 @@ The language features also work in `.lua` files (switch them off with `pluto.lua
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
 | `pluto.hover.maxDeclarations` | `8` | How many declarations a hover lists when several share a name; a link opens all of them in the references peek. |
-| `pluto.hover.maxBodyLines` | `25` | Longest function source shown in hovers; longer ones are cut with `-- ... (+N строк)`. `0` = no limit. |
+| `pluto.hover.maxBodyLines` | `25` | Longest function source shown in hovers; longer ones are cut with `-- ... (+N lines)` (`(+N строк)` in Russian). `0` = no limit. |
 | `pluto.outline.showFunctionBody` | `true` | Show the contents of functions in the Outline (locals, nested functions, callbacks, calls). |
 | `pluto.outline.maxFileLines` | `1000` | In larger files, show only classes, methods and function signatures. `0` = no limit. |
 | `pluto.outline.calls` | `none` | List calls inside functions: `none`, `statements` (call statements and `return`), or `all` (also calls inside expressions, once per callee). |

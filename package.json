@@ -1,7 +1,7 @@
 {
-	"name": "pluto-syntax-highlighting",
-	"displayName": "Pluto Syntax Highlighting",
-	"description": "Language support for Pluto, a Lua dialect: syntax highlighting, snippets, completion, hover, signature help, go to definition, outline & live diagnostics.",
+	"name": "pluto-lua-language-support",
+	"displayName": "%displayName%",
+	"description": "%description%",
 	"keywords": [
 		"Pluto language",
 		"pluto",
@@ -10,8 +10,8 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.15.4",
-	"publisher": "calamity-inc",
+	"version": "0.18.0",
+	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
 	"scripts": {
@@ -68,44 +68,63 @@
 		"commands": [
 			{
 				"command": "pluto-syntax-highlighting.run",
-				"title": "Pluto: Run Script"
+				"title": "%command.run.title%"
 			},
 			{
 				"command": "pluto-syntax-highlighting.lint",
-				"title": "Pluto: Lint Script"
+				"title": "%command.lint.title%"
 			},
 			{
 				"command": "pluto-syntax-highlighting.reindex",
-				"title": "Pluto: Rebuild Workspace Index"
+				"title": "%command.reindex.title%"
 			},
 			{
 				"command": "pluto-syntax-highlighting.showDeclarations",
-				"title": "Pluto: Show All Declarations"
+				"title": "%command.showDeclarations.title%"
+			},
+			{
+				"command": "pluto-syntax-highlighting.peekCode",
+				"title": "%command.peekCode.title%"
 			}
 		],
 		"configuration": {
-			"title": "Pluto",
+			"title": "%config.title%",
 			"properties": {
+				"pluto.language": {
+					"type": "string",
+					"enum": [
+						"auto",
+						"en",
+						"ru"
+					],
+					"enumDescriptions": [
+						"%pluto.language.enumDescriptions.0%",
+						"%pluto.language.enumDescriptions.1%",
+						"%pluto.language.enumDescriptions.2%"
+					],
+					"default": "auto",
+					"markdownDescription": "%pluto.language.markdownDescription%"
+				},
 				"pluto.lua.enable": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Enable language features (completion, hover, go-to-definition, signature help, outline, and diagnostics) for `.lua` files. Turn this off if another extension, such as `sumneko.lua`, already provides them, to avoid duplicate suggestions. Pluto files still see the declarations of Lua files they use while `#pluto.lua.indexFiles#` is on."
+					"markdownDescription": "%pluto.lua.enable.markdownDescription%"
 				},
 				"pluto.lua.indexFiles": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Read `.lua` files of the workspace into the index, so that Pluto code can complete, hover and navigate into the Lua modules it `require`s. Independent of `#pluto.lua.enable#`: with that off, Lua files are only read, never decorated with features of their own."
+					"markdownDescription": "%pluto.lua.indexFiles.markdownDescription%"
 				},
 				"pluto.index.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Index all Pluto files of the workspace to provide completion, hover and navigation across files. When disabled, only open files are analyzed."
+					"description": "%pluto.index.enabled.description%"
 				},
 				"pluto.index.includeLua": {
 					"type": "boolean",
 					"default": true,
-					"markdownDeprecationMessage": "Use `#pluto.lua.indexFiles#` instead. When disabled here, `.lua` files are still left out of the index.",
-					"markdownDescription": "Also index `.lua` files, so that Lua modules used from Pluto code are known."
+					"markdownDeprecationMessage": "%pluto.index.includeLua.markdownDeprecationMessage%",
+					"markdownDescription": "%pluto.index.includeLua.markdownDescription%"
 				},
 				"pluto.index.exclude": {
 					"type": "array",
@@ -114,14 +133,14 @@
 					},
 					"default": [],
 					"scope": "resource",
-					"markdownDeprecationMessage": "Use `#pluto.workspace.exclude#` instead. Patterns set here are still applied.",
-					"markdownDescription": "Glob patterns of files and folders to leave out of the index."
+					"markdownDeprecationMessage": "%pluto.index.exclude.markdownDeprecationMessage%",
+					"markdownDescription": "%pluto.index.exclude.markdownDescription%"
 				},
 				"pluto.workspace.useGitignore": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "Leave files matched by the `.gitignore` in the root of the workspace folder out of the index. When disabled, `.gitignore` is not read even if it is listed in `#pluto.workspace.ignoreFiles#`."
+					"markdownDescription": "%pluto.workspace.useGitignore.markdownDescription%"
 				},
 				"pluto.workspace.ignoreFiles": {
 					"type": "array",
@@ -133,7 +152,7 @@
 						".plutoignore"
 					],
 					"scope": "resource",
-					"markdownDescription": "Ignore files with `.gitignore` syntax, relative to the root of the workspace folder, whose patterns are left out of the index. Changes to these files are applied automatically."
+					"markdownDescription": "%pluto.workspace.ignoreFiles.markdownDescription%"
 				},
 				"pluto.workspace.exclude": {
 					"type": "array",
@@ -142,45 +161,45 @@
 					},
 					"default": [],
 					"scope": "resource",
-					"markdownDescription": "Glob patterns of files and folders to leave out of the index, relative to the workspace folder, e.g. `**/vendor/**` or `build/**`. `files.exclude` always applies; `node_modules`, `.git` and `.vs` are always excluded."
+					"markdownDescription": "%pluto.workspace.exclude.markdownDescription%"
 				},
 				"pluto.workspace.useSearchExclude": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "Also leave out files matched by `#search.exclude#`."
+					"markdownDescription": "%pluto.workspace.useSearchExclude.markdownDescription%"
 				},
 				"pluto.index.maxFiles": {
 					"type": "integer",
 					"default": 5000,
 					"minimum": 1,
-					"description": "Maximum number of files to index per workspace."
+					"description": "%pluto.index.maxFiles.description%"
 				},
 				"pluto.completion.keywords": {
 					"type": "boolean",
 					"default": true,
-					"description": "Suggest Pluto keywords."
+					"description": "%pluto.completion.keywords.description%"
 				},
 				"pluto.completion.documentWords": {
 					"type": "boolean",
 					"default": true,
-					"description": "Suggest other words of the current document."
+					"description": "%pluto.completion.documentWords.description%"
 				},
 				"pluto.completion.autoTriggerTypes": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Open the list of types by itself when typing a type hint in a Pluto file: after `:` in `function f(a: `, `function f(): ` and `local x: `. Method calls such as `obj:method` are not affected. The list offers built-in types and the classes of the workspace, each also as nullable (`int?`)."
+					"markdownDescription": "%pluto.completion.autoTriggerTypes.markdownDescription%"
 				},
 				"pluto.outline.showFunctionBody": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Show the contents of functions in the Outline and breadcrumbs: local variables, nested functions and callbacks (and calls, see `#pluto.outline.calls#`). When disabled, only classes, methods and function signatures are shown."
+					"markdownDescription": "%pluto.outline.showFunctionBody.markdownDescription%"
 				},
 				"pluto.outline.maxFileLines": {
 					"type": "integer",
 					"default": 1000,
 					"minimum": 0,
-					"markdownDescription": "In files with more lines than this, the contents of functions are left out of the Outline to keep the editor responsive, as if `#pluto.outline.showFunctionBody#` was disabled. `0` means no limit."
+					"markdownDescription": "%pluto.outline.maxFileLines.markdownDescription%"
 				},
 				"pluto.outline.calls": {
 					"type": "string",
@@ -190,42 +209,42 @@
 						"all"
 					],
 					"enumDescriptions": [
-						"Don't list calls.",
-						"List calls that are statements of their own, e.g. `util.toast(...)`, and `return` statements.",
-						"Also list calls inside of expressions, e.g. `ENTITY.GET_ENTITY_COORDS(...)` in `local coords = v3.new(ENTITY.GET_ENTITY_COORDS(entity))`. Each called function is listed once per function."
+						"%pluto.outline.calls.enumDescriptions.0%",
+						"%pluto.outline.calls.enumDescriptions.1%",
+						"%pluto.outline.calls.enumDescriptions.2%"
 					],
 					"default": "none",
-					"markdownDescription": "List the calls and `return` statements inside of functions in the Outline, to see what a function does without opening it. At most 50 per function. Requires `#pluto.outline.showFunctionBody#`."
+					"markdownDescription": "%pluto.outline.calls.markdownDescription%"
 				},
 				"pluto.outline.localVariables": {
 					"type": "boolean",
 					"default": true,
-					"description": "Show local variables declared inside functions and blocks in the Outline and breadcrumbs. File-level variables are always shown."
+					"description": "%pluto.outline.localVariables.description%"
 				},
 				"pluto.outline.loopVariables": {
 					"type": "boolean",
 					"default": false,
-					"markdownDescription": "Show loop variables (`for i = ...`, `for k, v in ...`) in the Outline."
+					"markdownDescription": "%pluto.outline.loopVariables.markdownDescription%"
 				},
 				"pluto.outline.parameters": {
 					"type": "boolean",
 					"default": false,
-					"description": "Show function parameters as children of their function in the Outline."
+					"description": "%pluto.outline.parameters.description%"
 				},
 				"pluto.outline.anonymousFunctions": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Show anonymous functions and block lambdas, e.g. `scheduler:add() callback`, in the Outline."
+					"markdownDescription": "%pluto.outline.anonymousFunctions.markdownDescription%"
 				},
 				"pluto.outline.fields": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Show fields assigned via `self.name = ...` as members of their class in the Outline."
+					"markdownDescription": "%pluto.outline.fields.markdownDescription%"
 				},
 				"pluto.outline.showValues": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Show the initial value of variables and fields next to their name in the Outline, e.g. `count = 0`."
+					"markdownDescription": "%pluto.outline.showValues.markdownDescription%"
 				},
 				"pluto.hover.sourcePath": {
 					"type": "string",
@@ -235,67 +254,67 @@
 						"none"
 					],
 					"enumDescriptions": [
-						"File name and line, e.g. `VehicleManager.pluto:75`. The full path is shown when pointing at the link.",
-						"Path relative to the workspace and line, e.g. `src/lib/game/VehicleManager.pluto:75`.",
-						"Don't show where a declaration comes from."
+						"%pluto.hover.sourcePath.enumDescriptions.0%",
+						"%pluto.hover.sourcePath.enumDescriptions.1%",
+						"%pluto.hover.sourcePath.enumDescriptions.2%"
 					],
 					"default": "short",
-					"markdownDescription": "How hovers and completion details link to a declaration in another file. Declarations in the current file always show just `Line N`."
+					"markdownDescription": "%pluto.hover.sourcePath.markdownDescription%"
 				},
 				"pluto.hover.showFunctionBody": {
 					"type": "boolean",
 					"default": true,
-					"description": "Show the source code of a function or method below its signature in hovers: comments removed, indentation normalized and logical blocks separated by blank lines."
+					"description": "%pluto.hover.showFunctionBody.description%"
 				},
 				"pluto.hover.maxBodyLines": {
 					"type": "integer",
 					"default": 25,
 					"minimum": 0,
-					"markdownDescription": "Longest function source shown in hovers, in lines; longer functions are cut with a `-- ... (+N строк)` note. `0` means no limit. Requires `#pluto.hover.showFunctionBody#`."
+					"markdownDescription": "%pluto.hover.maxBodyLines.markdownDescription%"
 				},
 				"pluto.hover.maxDeclarations": {
 					"type": "integer",
 					"default": 8,
 					"minimum": 1,
-					"description": "Number of declarations shown in a hover when several declarations share a name. A link below them opens the list of all."
+					"description": "%pluto.hover.maxDeclarations.description%"
 				},
 				"pluto.highlight.nullableTypes": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Highlight nullable types (`int?`, `?string`, `Vehicle?`) in type hints of Pluto files."
+					"markdownDescription": "%pluto.highlight.nullableTypes.markdownDescription%"
 				},
 				"pluto.highlight.nullableTypeColor": {
 					"type": "string",
 					"default": "#FFFFFF",
-					"markdownDescription": "Color of nullable types in dark and high contrast themes. Any CSS color, e.g. `#FFFFFF`."
+					"markdownDescription": "%pluto.highlight.nullableTypeColor.markdownDescription%"
 				},
 				"pluto.highlight.nullableTypeLightColor": {
 					"type": "string",
 					"default": "#000000",
-					"markdownDescription": "Color of nullable types in light themes, where white would be invisible."
+					"markdownDescription": "%pluto.highlight.nullableTypeLightColor.markdownDescription%"
 				},
 				"pluto.autoCloseBlocks": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Insert the matching `end` (or `until`) when pressing Enter after a block opener such as `function`, `if ... then`, `for ... do`, `class` or `switch ... do`."
+					"markdownDescription": "%pluto.autoCloseBlocks.markdownDescription%"
 				},
 				"pluto.diagnostics.enable": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "Show errors and warnings in the editor and the Problems panel: compiler errors (when a Pluto compiler is found, see `#pluto.diagnostics.compilerPath#`) and built-in checks (missing `require` targets, calls with too few arguments, problems in `info.json`)."
+					"markdownDescription": "%pluto.diagnostics.enable.markdownDescription%"
 				},
 				"pluto.diagnostics.compilerPath": {
 					"type": "string",
 					"default": "",
 					"scope": "machine-overridable",
-					"markdownDescription": "Path to the Pluto compiler used to check code without running it (`plutoc`, or the `pluto` interpreter). Supports `${workspaceFolder}`, `${userHome}` and `${env:NAME}`. When empty, a compiler inside the workspace is used (e.g. `pluto/*/plutoc.exe`, `tools/pluto/pluto.exe`, `bin/pluto`; the newest version wins), then `plutoc`/`pluto` from `PATH`. If none is found, only the built-in checks run."
+					"markdownDescription": "%pluto.diagnostics.compilerPath.markdownDescription%"
 				},
 				"pluto.diagnostics.debounceMs": {
 					"type": "number",
 					"default": 400,
 					"minimum": 0,
 					"maximum": 10000,
-					"description": "Delay in milliseconds after the last edit before a Pluto file is checked again."
+					"description": "%pluto.diagnostics.debounceMs.description%"
 				}
 			}
 		},
@@ -303,6 +322,10 @@
 			"commandPalette": [
 				{
 					"command": "pluto-syntax-highlighting.showDeclarations",
+					"when": "false"
+				},
+				{
+					"command": "pluto-syntax-highlighting.peekCode",
 					"when": "false"
 				}
 			]
@@ -323,7 +346,8 @@
 		"onCommand:pluto-syntax-highlighting.lint",
 		"onCommand:pluto-syntax-highlighting.reindex",
 		"workspaceContains:**/*.pluto",
-		"onCommand:pluto-syntax-highlighting.showDeclarations"
+		"onCommand:pluto-syntax-highlighting.showDeclarations",
+		"onCommand:pluto-syntax-highlighting.peekCode"
 	],
 	"devDependencies": {
 		"vscode-oniguruma": "^2.0.1",

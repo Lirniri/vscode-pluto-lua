@@ -1171,7 +1171,7 @@ test("function source: comments, spacing, indentation and blank lines", function
 
 	// Line limit.
 	const cut = formatFunctionSource(long, { maxLines: 5 });
-	assert.strictEqual(cut, "function g(x)\n\n  local a = 1\n  local b = 2\n  -- ... (+14 строк)");
+	assert.strictEqual(cut, "function g(x)\n\n  local a = 1\n  local b = 2\n  -- ... (+14 lines)");
 });
 
 test("hover: shows the source of a function below a separator", function ()
@@ -1196,7 +1196,7 @@ test("hover: shows the source of a function below a separator", function ()
 	vscode.config["pluto.hover.showFunctionBody"] = true;
 	assert(hover("function a()\n    print(1)\n    print(2)\n    print(3)\nend\n|a()").includes("-- ... (+"));
 	vscode.config["pluto.hover.showFunctionBody"] = false;
-	assert(!hover("function a()\n    print(1)\nend\n|a()").includes("---"));
+	assert(!hover("function a()\n    print(1)\nend\n|a()").includes("\n\n---\n\n"));
 	delete vscode.config["pluto.hover.showFunctionBody"];
 	delete vscode.config["pluto.hover.maxBodyLines"];
 });
@@ -1228,7 +1228,8 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		assert(h.includes("does_exist(vehicle: int)"), h);
 		assert(!h.includes("cam: int") && !h.includes("name: string") && !h.includes("entity: int") && !h.includes("ped"), h);
 		assert(h.includes("```pluto\nfunction module.does_exist(vehicle: int): bool\n\n  local is_entity"), h);
-		assert(!h.includes("command:"), h);
+		assert(!h.includes("showDeclarations"), h);
+		assert(h.includes("[$(preview) Peek Code](command:pluto-syntax-highlighting.peekCode?"), h);
 		// Shorter paths, `.lua` files and the group file itself.
 		assert(hover("Atdar.natives.entity.ped.does_ex|ist(h)").includes("does_exist(ped)"));
 		const entity = hover("Atdar.natives.entity.does_ex|ist(h)");
@@ -1244,18 +1245,20 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		// Unknown path: every declaration, listed with a link that opens them all.
 		const all = hover("foo.bar.does_ex|ist(h)");
 		assert(all.includes("cam: int") && all.includes("name: string") && all.includes("ped") && !all.includes("more declarations"), all);
-		assert(all.includes("[Показать все объявления (5)](command:pluto-syntax-highlighting.showDeclarations?"), all);
+		assert(all.includes("[Show all declarations (5)](command:pluto-syntax-highlighting.showDeclarations?"), all);
 		const { document, position } = at("foo.bar.does_ex|ist(h)");
 		const parts = providers.hoverProvider.provideHover(document, position).contents;
 		const link = parts[parts.length - 1];
 		assert.deepStrictEqual(link.isTrusted, { enabledCommands: ["pluto-syntax-highlighting.showDeclarations"] });
-		assert(parts.slice(0, -1).every(md => !md.isTrusted), "only the generated link may be trusted");
+		const peekLink = parts[parts.length - 2];
+		assert.deepStrictEqual(peekLink.isTrusted, { enabledCommands: ["pluto-syntax-highlighting.peekCode"] });
+		assert(parts.slice(0, -2).every(md => !md.isTrusted), "only the generated links may be trusted");
 
 		// The limit of the hover; the link still counts everything.
 		vscode.config["pluto.hover.maxDeclarations"] = 2;
 		const some = providers.hoverProvider.provideHover(document, position).contents;
-		assert.strictEqual(some.length, 3);
-		assert(some[2].value.includes("(5)"));
+		assert.strictEqual(some.length, 4);
+		assert(some[3].value.includes("(5)"));
 		delete vscode.config["pluto.hover.maxDeclarations"];
 
 		// The command behind the link opens the references peek with all of them.
@@ -1266,6 +1269,22 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		assert.strictEqual(calls.length, 1);
 		assert.strictEqual(calls[0][0], "editor.action.showReferences");
 		assert.strictEqual(calls[0][3].length, 5);
+
+		// "Peek Code": the wide peek widget through goToLocations, even for a single definition.
+		const peekArgs = JSON.parse(decodeURIComponent(/\?([^ )]+)/.exec(peekLink.value)[1]));
+		assert.strictEqual(peekArgs[0], document.uri.toString());
+		calls.length = 0;
+		const target = new vscode.Location(vscode.Uri.file("/ws/a.pluto"), new vscode.Position(1, 2));
+		vscode.commands = { executeCommand: async (...a) => { calls.push(a); return a[0] == "vscode.executeDefinitionProvider" ? [target] : undefined; } };
+		await providers.peekCode(...peekArgs);
+		assert.strictEqual(calls[0][0], "vscode.executeDefinitionProvider");
+		assert.strictEqual(calls[1][0], "editor.action.goToLocations");
+		assert.strictEqual(calls[1][4], "peek");
+		assert.deepStrictEqual(calls[1][3], [target]);
+		calls.length = 0;
+		vscode.commands = { executeCommand: async (...a) => { calls.push(a); return []; } };
+		await providers.peekCode(...peekArgs);
+		assert.strictEqual(calls.length, 1, "nothing to peek: no widget");
 	}
 	finally
 	{
@@ -1498,6 +1517,234 @@ test("type hints in the editor: the list opens by itself, nullable types are hig
 		delete vscode.config["pluto.highlight.nullableTypeColor"];
 		delete vscode.config["pluto.highlight.nullableTypes"];
 	}
+});
+
+const i18n = require("../src/i18n");
+
+test("i18n: the language is detected from the editor and can be fixed by hand", function ()
+{
+	const { resolveLanguage } = i18n;
+	// auto: Russian for any Russian display language, English for everything else
+	for (const ru of ["ru", "ru-RU", "ru_RU", "RU", "ru-ua"])
+	{
+		assert.strictEqual(resolveLanguage("auto", ru), "ru", ru);
+	}
+	for (const other of ["en", "en-US", "en-GB", "de", "uk", "pl", "zh-cn", "russian", "", undefined, null])
+	{
+		assert.strictEqual(resolveLanguage("auto", other), "en", String(other));
+	}
+	// missing or unknown settings behave like auto
+	assert.strictEqual(resolveLanguage(undefined, "ru"), "ru");
+	assert.strictEqual(resolveLanguage("klingon", "ru-RU"), "ru");
+	assert.strictEqual(resolveLanguage("klingon", "fr"), "en");
+	// a fixed language wins over the editor's
+	assert.strictEqual(resolveLanguage("en", "ru-RU"), "en");
+	assert.strictEqual(resolveLanguage("ru", "en-US"), "ru");
+	assert.strictEqual(resolveLanguage("ru", undefined), "ru");
+});
+
+test("i18n: applyLanguage reads pluto.language and vscode.env.language, and switches on the fly", function ()
+{
+	const { applyLanguage } = require("../src/extension");
+	try
+	{
+		vscode.env = { language: "ru-RU" };
+		assert.strictEqual(applyLanguage(), "ru");
+		assert.strictEqual(i18n.getLanguage(), "ru");
+		assert.strictEqual(i18n.t("hover.line", 7), "Строка 7");
+		vscode.config["pluto.language"] = "en"; // pinned by hand, as `onDidChangeConfiguration` would pick up
+		assert.strictEqual(applyLanguage(), "en");
+		assert.strictEqual(i18n.t("hover.line", 7), "Line 7");
+		vscode.env = { language: "en" };
+		vscode.config["pluto.language"] = "auto";
+		assert.strictEqual(applyLanguage(), "en");
+		vscode.config["pluto.language"] = "ru";
+		assert.strictEqual(applyLanguage(), "ru");
+		delete vscode.config["pluto.language"];
+		vscode.env = { language: "de" };
+		assert.strictEqual(applyLanguage(), "en");
+		delete vscode.env; // a host without `env` is English
+		assert.strictEqual(applyLanguage(), "en");
+	}
+	finally
+	{
+		delete vscode.env;
+		delete vscode.config["pluto.language"];
+		i18n.setLanguage("en");
+	}
+});
+
+test("i18n: the dictionaries are complete and the placeholders match", function ()
+{
+	const { MESSAGES, t, setLanguage } = i18n;
+	const keys = (o) => Object.keys(o).sort();
+	assert.deepStrictEqual(keys(MESSAGES.ru), keys(MESSAGES.en), "every message has a Russian and an English text");
+	const placeholders = (s) => (s.match(/\{\d+\}/g) || []).sort().join(",");
+	for (const key of Object.keys(MESSAGES.en))
+	{
+		assert.strictEqual(placeholders(MESSAGES.ru[key]), placeholders(MESSAGES.en[key]), key);
+		assert(MESSAGES.en[key].trim() && MESSAGES.ru[key].trim(), key);
+	}
+	// every built-in type has a description
+	for (const name of require("../src/analysis").PRIMITIVE_TYPES.keys())
+	{
+		assert(MESSAGES.en["type." + name] && MESSAGES.ru["type." + name], name);
+	}
+	// substitution, and what happens with unknown keys
+	assert.strictEqual(t("status.indexed", 3, 2), "Pluto: indexed 3 files, 2 module manifests");
+	assert.strictEqual(t("no.such.key"), "no.such.key");
+	assert.strictEqual(t("hover.requires", "xml"), "Requires `local xml = require \"pluto:xml\"`");
+	setLanguage("ru");
+	try
+	{
+		assert.strictEqual(t("status.indexed", 3, 2), "Pluto: проиндексировано файлов — 3, манифестов модулей — 2");
+		assert.strictEqual(t("no.such.key"), "no.such.key");
+		setLanguage("fr"); // unknown languages mean English
+		assert.strictEqual(i18n.getLanguage(), "en");
+	}
+	finally
+	{
+		setLanguage("en");
+	}
+});
+
+// (asynchronous only to run after the diagnostics helpers further down have been set up)
+testAsync("i18n: hovers, completion and diagnostics speak the chosen language", async function ()
+{
+	const russian = (fn) => { i18n.setLanguage("ru"); try { return fn(); } finally { i18n.setLanguage("en"); } };
+	// hover on a built-in type and a nullable type
+	assert(hover("function f(ped: in|t) end").includes("(type) int"));
+	russian(function ()
+	{
+		const plain = hover("function f(ped: in|t) end");
+		assert(plain.includes("(тип) int") && plain.includes("Целое число"), plain);
+		const nullable = hover("function f(ped: in|t?) end");
+		assert(nullable.includes("(nullable-тип) int?") && nullable.includes("Может быть `int` или `nil`"), nullable);
+		assert(hover("local s = str|ing.format(\"\")").includes("(библиотека) string"));
+		// completion of types
+		const list = complete("function f(a: |");
+		assert.strictEqual(list.get("int?").detail, "(nullable-тип) int?");
+		assert.strictEqual(list.get("bool").detail, "(тип) bool");
+		assert(list.get("bool").documentation.value.includes("Логический тип"));
+	});
+	// declarations link and source link in Russian
+	index.setFile(vscode.Uri.file("/ws/lib/dup1.pluto").toString(), "/ws/lib/dup1.pluto", "local A = {}\nfunction A.same() end\n");
+	index.setFile(vscode.Uri.file("/ws/lib/dup2.pluto").toString(), "/ws/lib/dup2.pluto", "local B = {}\nfunction B.same() end\n");
+	try
+	{
+		assert(hover("x.y.sa|me()").includes("[Show all declarations (2)]"));
+		russian(function ()
+		{
+			const h = hover("x.y.sa|me()");
+			assert(h.includes("[Показать все объявления (2)]") && h.includes("Открыть список всех объявлений"), h);
+			assert(h.includes("dup1.pluto:2"), h);
+		});
+	}
+	finally
+	{
+		index.removeFile(vscode.Uri.file("/ws/lib/dup1.pluto").toString());
+		index.removeFile(vscode.Uri.file("/ws/lib/dup2.pluto").toString());
+	}
+	// the same line number label inside one file
+	russian(function ()
+	{
+		assert(hover("function sameFile()\nend\nsame|File()").includes("[Строка 1]"));
+	});
+
+	// diagnostics of the built-in checks
+	const { lintSource, lintManifest } = require("../src/lint");
+	const messages = () => [
+		...lint("local m = require(\"nothing.here\")\ngreet()").map(p => p.message),
+		...lintManifest("{ \"entry\": \"x.pluto\", \"dependencies\": [\"ghost\"] }", "/ws/mods/new/info.json", index, { exists: () => false }).map(p => p.message),
+	];
+	const en = messages();
+	assert.deepStrictEqual(en, [
+		"Module 'nothing.here' not found: no matching .pluto or .lua file in the workspace.",
+		"'greet' expects at least 1 argument but got 0. Required: who.",
+		"Missing required field 'id'.",
+		"Entry file 'x.pluto' does not exist.",
+		"Unknown dependency 'ghost': no info.json with this id in the workspace.",
+	]);
+	assert.deepStrictEqual(russian(messages), [
+		"Модуль 'nothing.here' не найден: в рабочей области нет подходящего файла .pluto или .lua.",
+		"'greet' ожидает минимум аргументов: 1, передано: 0. Обязательные: who.",
+		"Отсутствует обязательное поле 'id'.",
+		"Файл точки входа 'x.pluto' не существует.",
+		"Неизвестная зависимость 'ghost': в рабочей области нет info.json с таким id.",
+	]);
+	assert.strictEqual(typeof lintSource, "function");
+
+	// the truncated source of a function
+	const { formatFunctionSource } = require("../src/functionSource");
+	const code = "function g(x)\n    local a = 1\n    local b = 2\n    print(a)\n    print(b)\n    return a\nend";
+	assert(formatFunctionSource(code, { maxLines: 3 }).endsWith("-- ... (+7 lines)"));
+	assert(russian(() => formatFunctionSource(code, { maxLines: 3 })).endsWith("-- ... (+7 строк)"));
+});
+
+test("package.nls: every %key% of package.json has an English and a Russian text", function ()
+{
+	const root = path.join(__dirname, "..");
+	const read = (name) => JSON.parse(fs.readFileSync(path.join(root, name), "utf8"));
+	const pkg = read("package.json");
+	const en = read("package.nls.json");
+	const ru = read("package.nls.ru.json");
+	assert.deepStrictEqual(Object.keys(ru).sort(), Object.keys(en).sort(), "the two files have the same keys");
+
+	// all %keys% used in the manifest
+	const used = new Set();
+	(function walk(value)
+	{
+		if (typeof value == "string")
+		{
+			const m = /^%(.+)%$/.exec(value);
+			if (m) { used.add(m[1]); }
+		}
+		else if (value && typeof value == "object")
+		{
+			Object.values(value).forEach(walk);
+		}
+	})(pkg);
+	for (const key of used)
+	{
+		assert(en[key] && ru[key], "missing text for %" + key + "%");
+	}
+	assert.deepStrictEqual([...used].sort(), Object.keys(en).sort(), "no unused texts");
+
+	// nothing readable is left untranslated in the manifest: all texts of settings and commands are %keys%
+	for (const [id, p] of Object.entries(pkg.contributes.configuration.properties))
+	{
+		for (const field of ["description", "markdownDescription", "markdownDeprecationMessage"])
+		{
+			if (p[field]) { assert(/^%.+%$/.test(p[field]), id + "." + field); }
+		}
+		(p.enumDescriptions || []).forEach((d, i) => assert(/^%.+%$/.test(d), id + ".enumDescriptions." + i));
+		assert(p.description || p.markdownDescription, id + " is described");
+	}
+	for (const c of pkg.contributes.commands)
+	{
+		assert(/^%.+%$/.test(c.title), c.command);
+	}
+	for (const field of ["displayName", "description"])
+	{
+		assert(/^%.+%$/.test(pkg[field]), field);
+	}
+
+	// the language setting
+	const language = pkg.contributes.configuration.properties["pluto.language"];
+	assert.deepStrictEqual(language.enum, ["auto", "en", "ru"]);
+	assert.strictEqual(language.default, "auto");
+	assert.strictEqual(language.enumDescriptions.length, 3);
+	// the Russian texts are real Russian, the English ones are not
+	for (const [key, text] of Object.entries(ru))
+	{
+		if (key != "displayName" && key != "config.title")
+		{
+			assert(/[А-Яа-яЁё]/.test(text), "not translated: " + key);
+		}
+	}
+	// the files travel with the extension
+	const ignore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
+	assert(!/nls/.test(ignore));
 });
 
 const { collectReturnTags, splitReturnTag, describeReturnType } = require("../src/returnTags");

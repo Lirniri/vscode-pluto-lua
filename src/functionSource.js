@@ -4,6 +4,8 @@
 
 "use strict";
 
+const { t } = require("./i18n");
+
 const OPEN = "\u0001";
 const CLOSE = "\u0002";
 const INDENT = "  ";
@@ -282,7 +284,7 @@ function formatFunctionSource(source, options)
 		{
 			kept.pop();
 		}
-		kept.push(INDENT + "-- ... (+" + (physical.length - kept.length) + " строк)");
+		kept.push(INDENT + t("body.truncated", physical.length - kept.length));
 		text = kept.join("\n");
 	}
 	return text;
