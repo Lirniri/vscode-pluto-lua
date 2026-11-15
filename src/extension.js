@@ -543,8 +543,11 @@ async function applyHighlightColors()
 {
 	const config = vscode.workspace.getConfiguration("pluto");
 	const enabled = config.get("highlight.applyColors", false) === true;
+	// Light themes (and high contrast light) use `lightColor`, the others `darkColor`.
+	const themeKind = vscode.window.activeColorTheme && vscode.window.activeColorTheme.kind;
+	const kind = themeKind === vscode.ColorThemeKind.Light || themeKind === vscode.ColorThemeKind.HighContrastLight ? "light" : "dark";
 	const rules = enabled
-		? buildRules(config.get("highlight.colors"), config.get("highlight.tableBracketColors"))
+		? buildRules(config.get("highlight.colors"), config.get("highlight.tableBracketColors"), kind)
 		: [];
 	// A wrong value is never applied (the color of the theme stays); the user is told about it.
 	reportColorProblems(enabled ? findProblems(config.get("highlight.colors"), config.get("highlight.tableBracketColors")) : []);
@@ -655,6 +658,11 @@ function activate(context)
 			applyHighlightColors().catch(() => { });
 		}
 	}));
+	if (vscode.window.onDidChangeActiveColorTheme)
+	{
+		// The color of a rule depends on whether the theme is dark or light.
+		context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(() => applyHighlightColors().catch(() => { })));
+	}
 
 	// Keep the index in sync with editors and the file system.
 	context.subscriptions.push(

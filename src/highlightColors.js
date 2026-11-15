@@ -37,16 +37,35 @@ function isInvisibleColor(color)
 /**
  * Checks a style and says what is wrong with it, so that a mistake can be reported and the color of the
  * theme stays instead of a wrong one.
- * @param {unknown} value "#ff8800 bold italic" or { color, fontStyle }.
+ * @param {unknown} value "#ff8800 bold italic" or { color, darkColor, lightColor, fontStyle }.
+ * @param {"dark"|"light"} [kind] Kind of the theme, picks `darkColor` / `lightColor` of the object form.
  * @returns {{ settings: { foreground?: string, fontStyle?: string }|null, problem?: "invalid"|"transparent" }}
  *   `settings` is null when nothing usable is left; an empty value is "not set" and no problem.
  */
-function checkStyle(value)
+function checkStyle(value, kind)
 {
 	if (value && typeof value == "object" && !Array.isArray(value))
 	{
-		// { "color": "#FF8800", "fontStyle": "bold" }, as written with the color picker.
-		value = [value.color, value.fontStyle].filter(v => typeof v == "string" && v.trim()).join(" ");
+		// { "color": "#FF8800", "darkColor": ..., "lightColor": ..., "fontStyle": "bold" }, as written with the
+		// color picker. `color` is for every theme, `darkColor` / `lightColor` override it for dark and light ones.
+		for (const field of ["color", "darkColor", "lightColor"])
+		{
+			if (typeof value[field] == "string" && value[field].trim())
+			{
+				const checked = checkStyle(value[field], kind);
+				if (checked.problem || !checked.settings || !checked.settings.foreground)
+				{
+					return { settings: null, problem: checked.problem || "invalid" };
+				}
+			}
+			else if (value[field] !== undefined && value[field] !== null && value[field] !== "")
+			{
+				return { settings: null, problem: "invalid" };
+			}
+		}
+		const own = kind == "light" ? value.lightColor : value.darkColor;
+		const color = [own || value.color, value.fontStyle].filter(v => typeof v == "string" && v.trim()).join(" ");
+		return checkStyle(color, kind);
 	}
 	if (value === undefined || value === null || value === "")
 	{
@@ -94,12 +113,13 @@ function checkStyle(value)
 /**
  * Parses "#ff8800 bold italic" (or { color, fontStyle }) into a TextMate settings object.
  * @param {unknown} value A color string, optionally followed by bold / italic / underline / strikethrough.
+ * @param {"dark"|"light"} [kind]
  * @returns {{ foreground?: string, fontStyle?: string }|null} null when there is nothing usable or the
  *   value is wrong (a typo, a fully transparent color).
  */
-function parseStyle(value)
+function parseStyle(value, kind)
 {
-	return checkStyle(value).settings;
+	return checkStyle(value, kind).settings;
 }
 
 /**
@@ -143,20 +163,21 @@ function findProblems(colors, tableBrackets)
  * The TextMate rules for the settings.
  * @param {Record<string, unknown>|undefined} colors Value of `pluto.highlight.colors`.
  * @param {unknown[]|undefined} tableBrackets Value of `pluto.highlight.tableBracketColors`.
+ * @param {"dark"|"light"} [kind] Kind of the active theme; default dark.
  * @returns {{ name: string, scope: string[], settings: object }[]}
  */
-function buildRules(colors, tableBrackets)
+function buildRules(colors, tableBrackets, kind)
 {
 	const rules = [];
 	for (const [key, scopes] of Object.entries(CATEGORIES))
 	{
-		const settings = parseStyle(colors && colors[key]);
+		const settings = parseStyle(colors && colors[key], kind);
 		if (settings)
 		{
 			rules.push({ name: RULE_PREFIX + key, scope: scopes.slice(), settings });
 		}
 	}
-	const palette = (Array.isArray(tableBrackets) ? tableBrackets : []).map(parseStyle).filter(Boolean);
+	const palette = (Array.isArray(tableBrackets) ? tableBrackets : []).map(v => parseStyle(v, kind)).filter(Boolean);
 	if (palette.length)
 	{
 		// A `{` at depth N has N `meta.table.pluto` scopes, so a descendant selector picks the level.

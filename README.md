@@ -14,7 +14,7 @@ Besides syntax highlighting and snippets, the VS Code extension provides languag
 - **Type hints**: typing `:` in `function f(a: `, `function f(): ` or `local x: ` opens the list of types (built-in types and your classes, each also as nullable `int?`); nullable types are highlighted and explained on hover (`(nullable type) int? — Can be int or nil`), also in signature help. Both spellings, `int?` and `?int`, are understood.
 - **Peek Code**: a **Peek Code** link at the bottom of a hover (`Показать код` in Russian) opens the declaration in a wide peek window with the code on the left and the list of locations on the right, even when there is only one declaration.
 - **Union types** (`int|string`, `?int|string?`): hover the `|` to see what the whole union can hold, with `nil` made explicit.
-- **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, see [Highlight colors](#highlight-colors).
+- **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, each with its own color for dark and light themes and a color picker in `settings.json`; wrong values are reported and never applied. See [Highlight colors](#highlight-colors).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -97,6 +97,15 @@ The extension does not change how your theme looks until you turn this on. Set `
 ```
 
 Each entry is either an object with `color` and `fontStyle`, or a short string such as `"#FF8800 bold"`. In `settings.json` the `color` of the object form gets a color picker (click the swatch next to the value). `fontStyle` is one of `normal`, `bold`, `italic`, `bold italic`, `underline`, `bold underline`, `italic underline`. A color can carry transparency (`#FF880080`).
+
+**Dark and light themes.** The object form can give each kind of theme its own color:
+
+```jsonc
+"returnType": { "color": "#4EC9B0", "lightColor": "#007A62" }
+"functionName": { "darkColor": "#FFD866", "lightColor": "#8A6500" }
+```
+
+`color` is used in every theme, `darkColor` overrides it in dark and high contrast themes, `lightColor` in light and high contrast light themes. A color that is not set falls back to `color`; if there is none for the current kind of theme, the color of the theme stays. All three get a color picker, and the colors are switched by themselves when you change the theme. The same object form works in `pluto.highlight.tableBracketColors`. The short string form (`"#FF8800 bold"`) has one color for every theme.
 
 A wrong value is never applied: the color of your theme stays, and the extension shows a warning that names the setting and the value, with a button that opens `settings.json`. This covers a value that is not a color or style (`"blue"`, a typo in `fontStyle`), a fully transparent color (`#0000`, `#00000000`), which would make the text invisible, and an unknown key (`"functonName"`). An empty string `""` simply means "not set".
 

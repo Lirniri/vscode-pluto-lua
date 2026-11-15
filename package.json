@@ -10,7 +10,7 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.22.0",
+	"version": "0.23.0",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -309,6 +309,8 @@
 							"markdownDescription": "%pluto.highlight.colors.functionName%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -317,6 +319,8 @@
 							"markdownDescription": "%pluto.highlight.colors.functionKeyword%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -325,6 +329,8 @@
 							"markdownDescription": "%pluto.highlight.colors.parameter%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -333,6 +339,8 @@
 							"markdownDescription": "%pluto.highlight.colors.type%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -341,6 +349,8 @@
 							"markdownDescription": "%pluto.highlight.colors.returnType%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -349,6 +359,8 @@
 							"markdownDescription": "%pluto.highlight.colors.typeColon%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -357,6 +369,8 @@
 							"markdownDescription": "%pluto.highlight.colors.keyword%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -365,6 +379,8 @@
 							"markdownDescription": "%pluto.highlight.colors.operator%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -373,6 +389,8 @@
 							"markdownDescription": "%pluto.highlight.colors.constant%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -381,6 +399,8 @@
 							"markdownDescription": "%pluto.highlight.colors.modifier%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						},
@@ -389,6 +409,8 @@
 							"markdownDescription": "%pluto.highlight.colors.accessor%",
 							"properties": {
 								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 							}
 						}
@@ -401,6 +423,8 @@
 						"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
 						"properties": {
 							"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+							"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
+							"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
 							"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
 						}
 					},

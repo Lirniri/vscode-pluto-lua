@@ -2390,3 +2390,47 @@ test("highlight colors: wrong values are reported and never applied", function (
 	const rules = buildRules({ functionName: "#0000", parameter: "blue", type: "#112233" }, ["#0000"]);
 	assert.deepStrictEqual(rules.map(r => r.name), ["Pluto: type"]);
 });
+
+test("highlight colors: darkColor and lightColor of the object form follow the kind of the theme", function ()
+{
+	const { checkStyle, parseStyle, findProblems, buildRules } = require("../src/highlightColors");
+	const both = { color: "#111111", darkColor: "#222222", lightColor: "#333333", fontStyle: "bold" };
+	assert.deepStrictEqual(parseStyle(both, "dark"), { foreground: "#222222", fontStyle: "bold" });
+	assert.deepStrictEqual(parseStyle(both, "light"), { foreground: "#333333", fontStyle: "bold" });
+	assert.deepStrictEqual(parseStyle(both), { foreground: "#222222", fontStyle: "bold" }, "dark is the default");
+	// What is not set falls back to `color`; `color` alone is for every theme.
+	assert.deepStrictEqual(parseStyle({ color: "#111111", lightColor: "#333333" }, "dark"), { foreground: "#111111" });
+	assert.deepStrictEqual(parseStyle({ color: "#111111", lightColor: "#333333" }, "light"), { foreground: "#333333" });
+	assert.deepStrictEqual(parseStyle({ color: "#111111" }, "light"), { foreground: "#111111" });
+	assert.deepStrictEqual(parseStyle({ lightColor: "#333333" }, "light"), { foreground: "#333333" });
+	assert.strictEqual(parseStyle({ lightColor: "#333333" }, "dark"), null, "nothing for dark themes: the theme color stays");
+	assert.deepStrictEqual(parseStyle({ color: "#111111 italic" }, "dark"), { foreground: "#111111", fontStyle: "italic" });
+	// A wrong color in any of the fields is reported, whichever theme is active.
+	for (const kind of ["dark", "light"])
+	{
+		assert.strictEqual(checkStyle({ color: "#111111", lightColor: "#0000" }, kind).problem, "transparent", kind);
+		assert.strictEqual(checkStyle({ color: "#111111", darkColor: "blue" }, kind).problem, "invalid", kind);
+		assert.strictEqual(checkStyle({ lightColor: 5 }, kind).problem, "invalid", kind);
+	}
+	assert.deepStrictEqual(findProblems({ type: { color: "#111111", lightColor: "#0000" } }, []).map(p => [p.name, p.problem]), [["colors.type", "transparent"]]);
+	// Rules, including the palette of table braces.
+	const colors = { functionName: both, type: { color: "#444444" } };
+	const brackets = [{ darkColor: "#aa0000", lightColor: "#00aa00" }, "#0000ff"];
+	const dark = buildRules(colors, brackets, "dark");
+	const light = buildRules(colors, brackets, "light");
+	assert.strictEqual(dark.find(r => r.name == "Pluto: functionName").settings.foreground, "#222222");
+	assert.strictEqual(light.find(r => r.name == "Pluto: functionName").settings.foreground, "#333333");
+	assert.strictEqual(light.find(r => r.name == "Pluto: type").settings.foreground, "#444444");
+	assert.strictEqual(dark.find(r => r.name == "Pluto: tableBracket 1").settings.foreground, "#aa0000");
+	assert.strictEqual(light.find(r => r.name == "Pluto: tableBracket 1").settings.foreground, "#00aa00");
+	assert.strictEqual(light.find(r => r.name == "Pluto: tableBracket 2").settings.foreground, "#0000ff");
+	// Every color field of the schema has a picker.
+	const pkg = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "package.json"), "utf8"));
+	for (const prop of Object.values(pkg.contributes.configuration.properties["pluto.highlight.colors"].properties))
+	{
+		for (const field of ["color", "darkColor", "lightColor"])
+		{
+			assert.strictEqual(prop.properties[field].format, "color-hex", field);
+		}
+	}
+});
