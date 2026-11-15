@@ -14,6 +14,8 @@ const { WorkspaceFilter } = require("./workspaceFilter");
 const { registerDiagnostics } = require("./diagnostics");
 const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEditor");
 const { registerMultilineFormat } = require("./multilineEditor");
+const { registerDefaultValueHint } = require("./defaultValuesEditor");
+const { registerAutoFormat } = require("./autoFormatEditor");
 const { buildRules, mergeRules, findProblems, CATEGORIES } = require("./highlightColors");
 const { t, resolveLanguage, setLanguage } = require("./i18n");
 
@@ -650,6 +652,8 @@ function activate(context)
 	);
 	registerAutoClose(context, service);
 	registerMultilineFormat(context, service);
+	registerDefaultValueHint(context, service);
+	registerAutoFormat(context, service);
 	registerTypeAutoTrigger(context);
 	registerNullableHighlight(context);
 	applyHighlightColors().catch(() => { });

@@ -55,6 +55,8 @@ class DiagnosticsManager
 			// `.lua` files are syntax-checked with a Lua interpreter while the Lua support is on.
 			luaCheck: config.get("lua.enable", true) !== false && config.get("lua.checkSyntax", true) !== false,
 			luaCompilerPath: config.get("lua.compilerPath", "") || "",
+			duplicates: ["warning", "error", "off"].includes(config.get("diagnostics.duplicateParams", "warning")) ? config.get("diagnostics.duplicateParams", "warning") : "warning",
+			brackets: ["off", "suggest", "auto"].includes(config.get("format.fixMismatchedBrackets", "suggest")) ? config.get("format.fixMismatchedBrackets", "suggest") : "suggest",
 			jsonEnabled: config.get("json.enable", true) !== false,
 			jsonFiles: config.get("json.files", ["**/info.json"]),
 			jsonExtensions: config.get("json.extensions", [".pluto", ".lua"]),
@@ -303,6 +305,8 @@ class DiagnosticsManager
 			searchDirs: folders,
 			// Without an index, other files are unknown, so a missing module can't be told apart.
 			requires: config.indexEnabled || local,
+			duplicates: config.duplicates,
+			brackets: config.brackets,
 		});
 		return problems.map(p => this._toDiagnostic(p, "pluto-lint"));
 	}
@@ -672,6 +676,10 @@ function registerDiagnostics(context, service, indexed)
 				manager.resetCompiler();
 				manager.recheckAll(true);
 				manager.recheckSoon(); // once the index has been rebuilt
+			}
+			else if (event.affectsConfiguration("pluto.format"))
+			{
+				manager.recheckAll(false); // the check of the closing brackets is a setting there
 			}
 			else if (event.affectsConfiguration("pluto.json"))
 			{

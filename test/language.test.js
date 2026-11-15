@@ -2779,3 +2779,328 @@ test("multiline format: the settings exist and are on by default", function ()
 		assert(props[key].markdownDescription.includes("%" + key + ".markdownDescription%"));
 	}
 });
+
+const defaults = require("../src/defaultValues");
+
+/** The parameter under the cursor (`@` marks it; `|` is needed in union types). */
+function paramIn(textWithCursor)
+{
+	const offset = textWithCursor.indexOf("@");
+	const text = textWithCursor.replace("@", "");
+	const info = defaults.paramAt(text, offset);
+	return info && { name: info.name, type: info.typeText, hasDefault: info.hasDefault, written: text.slice(info.typeStart, info.typeEnd) };
+}
+
+test("default values: the parameter with a type under the cursor", function ()
+{
+	assert.deepStrictEqual(paramIn("function name(test: bool@)"), { name: "test", type: "bool", hasDefault: false, written: "bool" });
+	assert.deepStrictEqual(paramIn("function name(test: bool @)").type, "bool");
+	assert.deepStrictEqual(paramIn("function name(a, test: bool@, c)").name, "test");
+	assert.deepStrictEqual(paramIn("function name(a: int, b: Vehicle@)").type, "Vehicle");
+	assert.deepStrictEqual(paramIn("function name(te@st: bool)").name, "test", "anywhere on the parameter");
+	assert.deepStrictEqual(paramIn("function name(test: int?@)").type, "int?");
+	assert.deepStrictEqual(paramIn("function name(test: ?string@)").type, "?string");
+	assert.deepStrictEqual(paramIn("function name(p: { x: int, y: int }@)").type, "{ x: int, y: int }");
+	assert.deepStrictEqual(paramIn("function name(...rest: any@)").name, "rest");
+	assert.deepStrictEqual(paramIn("local f = function(t: bool@)").name, "t");
+	assert.deepStrictEqual(paramIn("function obj.sub:method(t: bool@)").name, "t");
+	// A union: the `|` of the type is no part of the cursor mark.
+	const union = defaults.paramAt("function name(test: int|string)", "function name(test: int|string".length);
+	assert.strictEqual(union.typeText, "int|string");
+	// With a default value, or typed on several lines.
+	assert.deepStrictEqual(paramIn("function name(test: bool = false@)").hasDefault, true);
+	assert.deepStrictEqual(paramIn("function name(test: bool =@)").hasDefault, true);
+	assert.deepStrictEqual(paramIn("function name(\n    test: bool@\n)").name, "test");
+	assert.deepStrictEqual(paramIn("function name(test: bool@\nend").name, "test", "an unfinished list");
+	// Not on a parameter: after the comma, in the list of a call, a variable, an untyped parameter, a plain list.
+	for (const text of [
+		"function name(a: int,@ b: bool)", "function name(a: int, b: bool)@", "foo(test: bool@)", "local x: bool@", "function name(test@)",
+		"function name(a,@ b)", "function name(@)", "function name(test:@)", "local t = { a: bool@ }", "function name(a: int)\n    local x = (b: c@)",
+	])
+	{
+		assert.strictEqual(paramIn(text), null, text);
+	}
+	// What is typed on the line below does not leak into the parameter above.
+	assert.strictEqual(paramIn("function name(test: bool@\n    , c: int)").type, "bool");
+});
+
+test("default values: the values that fit a type", function ()
+{
+	const isClass = (name) => name == "Vehicle";
+	const values = (type) => defaults.defaultValuesFor(type, isClass);
+	assert.deepStrictEqual(values("bool"), ["false", "true"]);
+	assert.deepStrictEqual(values("boolean"), ["false", "true"]);
+	assert.deepStrictEqual(values("int"), ["0", "1", "-1"]);
+	assert.deepStrictEqual(values("float"), ["0.0", "1.0", "-1.0"]);
+	assert.deepStrictEqual(values("number"), ["0", "1", "-1"]);
+	assert.deepStrictEqual(values("string"), ['""']);
+	assert.deepStrictEqual(values("table"), ["{}"]);
+	assert.deepStrictEqual(values("function"), ["function() end"]);
+	assert.deepStrictEqual(values("{ x: int }"), ["{}"]);
+	assert.deepStrictEqual(values("any"), ["nil", "false", "0", '""', "{}"]);
+	assert.deepStrictEqual(values("Vehicle"), ["new Vehicle()"]);
+	// A nullable type: the values first, `nil` last (both spellings of `?`).
+	assert.deepStrictEqual(values("int?"), ["0", "1", "-1", "nil"]);
+	assert.deepStrictEqual(values("?string"), ['""', "nil"]);
+	assert.deepStrictEqual(values("Vehicle?"), ["new Vehicle()", "nil"]);
+	assert.deepStrictEqual(values("bool|nil"), ["false", "true", "nil"]);
+	// A union offers the values of each member, without repeating one.
+	assert.deepStrictEqual(values("int|string"), ["0", "1", "-1", '""']);
+	assert.deepStrictEqual(values("int|float|number"), ["0", "1", "-1", "0.0", "1.0", "-1.0"]);
+	assert.deepStrictEqual(values("void"), []);
+	assert.deepStrictEqual(values("Unknown"), []);
+	assert.deepStrictEqual(defaults.splitUnion("int|{ a: int|string }|?bool"), ["int", "{ a: int|string }", "?bool"]);
+	// Only a finished type has values: `bo` is still being typed, `int|` is not finished.
+	for (const type of ["bool", "int?", "?string", "int|string", "Vehicle", "nil", "{ x: int }", "function(a: int): int"])
+	{
+		assert(defaults.isCompleteType(type, isClass), type);
+	}
+	for (const type of ["bo", "", "int|", "Unknown", "Vehicle2"])
+	{
+		assert(!defaults.isCompleteType(type, isClass), type);
+	}
+	assert(!defaults.isCompleteType("Vehicle"), "without a class check a name is no type");
+});
+
+test("default values: the completion offers them after a complete type", function ()
+{
+	const key = vscode.Uri.file("/ws/vehicle.pluto").toString();
+	index.setFile(key, "/ws/vehicle.pluto", "class Vehicle\n    function __construct()\n    end\nend\n");
+	try
+	{
+		const items = (text, context) => complete(text, context).items.filter(i => String(i.label).startsWith("= "));
+		const labels = (text) => items(text).map(i => i.label);
+		// Right after the type, with the cursor on its last letter or behind a space.
+		assert.deepStrictEqual(labels("function name(test: bool|)"), ["= false", "= true"]);
+		assert.deepStrictEqual(labels("function name(test: bool |)"), ["= false", "= true"]);
+		assert.deepStrictEqual(labels("function name(a: int, test: int?|, c)"), ["= 0", "= 1", "= -1", "= nil"]);
+		assert.deepStrictEqual(labels("function name(test: ?string|)"), ['= ""', "= nil"]);
+		assert.deepStrictEqual(labels("function name(test: Vehicle|)"), ["= new Vehicle()"]);
+		assert.deepStrictEqual(labels("local f = function(test: table|)"), ["= {}"]);
+		// Inserted at the cursor, with a space in front when the cursor touches the type, and not replacing it.
+		const [first] = items("function name(test: bool|)");
+		assert.strictEqual(first.insertText, " = false");
+		assert.strictEqual(first.range.start.character, "function name(test: bool".length);
+		assert.strictEqual(first.range.start.character, first.range.end.character);
+		assert.strictEqual(first.preselect, true);
+		assert.strictEqual(items("function name(test: bool |)")[0].insertText, "= false");
+		assert(first.detail.includes("test"));
+		// The values come first; the types stay behind them (`bool` can still become `boolean`).
+		const all = complete("function name(test: bool|)").items;
+		assert.strictEqual(String(all[0].label), "= false");
+		assert(all.some(i => i.label == "boolean") && all.some(i => i.label == "bool?"));
+		// Not when there is a default value already, in a call, for a variable, for an unfinished type, or in Lua.
+		for (const text of [
+			"function name(test: bool = false|)", "function name(test: bool =|)", "foo(test: bool|)", "local x: bool|", "function name(test: bo|)",
+			"function name(test|)", "function name(a: int,| b)", "function name(test: Unknown|)",
+		])
+		{
+			assert.deepStrictEqual(labels(text), [], text);
+		}
+		// A space typed by the user does not open it (the timer or Ctrl+Space does).
+		assert.deepStrictEqual(items("function name(test: bool |)", { triggerKind: 1, triggerCharacter: " " }), []);
+		// The setting switches it off.
+		vscode.config["pluto.completion.defaultValues"] = false;
+		try
+		{
+			assert.deepStrictEqual(labels("function name(test: bool|)"), []);
+		}
+		finally
+		{
+			delete vscode.config["pluto.completion.defaultValues"];
+		}
+	}
+	finally
+	{
+		index.removeFile(key);
+	}
+});
+
+test("default values: the settings exist, with the colors of the line for dark and light themes", function ()
+{
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	assert.strictEqual(props["pluto.highlight.paramNoDefault"].default, true);
+	assert.strictEqual(props["pluto.highlight.paramNoDefaultColor"].format, "color-hex");
+	assert.strictEqual(props["pluto.highlight.paramNoDefaultLightColor"].format, "color-hex");
+	assert.strictEqual(props["pluto.completion.defaultValues"].default, true);
+	assert.strictEqual(props["pluto.completion.defaultValuesDelayMs"].default, 800);
+	assert.strictEqual(props["pluto.completion.defaultValuesDelayMs"].minimum, 0);
+});
+
+const autoFormat = require("../src/autoFormat");
+const AF = { params: true, tables: true };
+
+test("auto format: a new line after the comma of a multi-line list", function ()
+{
+	const plan = (text, options) => autoFormat.planCommaNewLine(text.replace("|", ""), text.slice(0, text.indexOf("|")).split("\n").length - 1, options || AF, "    ", "\n");
+	const run = (textWithCursor, options) =>
+	{
+		const text = textWithCursor.replace("|", "");
+		const p = plan(textWithCursor, options);
+		assert(p, "a plan was expected");
+		const e = p.edits[0];
+		const lines = text.split("\n");
+		lines[e.line] = lines[e.line].slice(0, e.col) + e.text + lines[e.line].slice(e.endCol);
+		return { text: lines.join("\n"), cursor: p.cursor };
+	};
+	let r = run("function name(\n    test: bool = false,|\n)\nend");
+	assert.strictEqual(r.text, "function name(\n    test: bool = false,\n    \n)\nend");
+	assert.deepStrictEqual(r.cursor, { line: 2, col: 4 });
+	r = run("local cfg = {\n    enabled = true,| -- on\n}");
+	assert.strictEqual(r.text, "local cfg = {\n    enabled = true, -- on\n    \n}", "the comment stays in place");
+	// The first element is on the line of the bracket: the next one goes one level deeper.
+	r = run("function name(a,|\n)");
+	assert.strictEqual(r.text, "function name(a,\n    \n)");
+	r = run("  local t = { a = 1,|\n  }");
+	assert.deepStrictEqual(r.cursor, { line: 1, col: 6 });
+	// A table element above others: the line for the next one is added between them.
+	r = run("local t = {\n    a = 1,|\n    b = 2\n}");
+	assert.strictEqual(r.text, "local t = {\n    a = 1,\n    \n    b = 2\n}");
+	// Tab and CRLF come from the caller.
+	const tab = autoFormat.planCommaNewLine("local t = { a = 1,\n}", 0, AF, "\t", "\r\n");
+	assert.strictEqual(tab.edits[0].text, "\r\n\t");
+	// Not: a one-line list, a call, a line that is there already, no comma at the end, a lambda body, the settings.
+	for (const text of [
+		"function name(a,| b)", "local t = { a = 1,| b = 2 }", "foo(\n    a,|\n)", "local t = {\n    a = 1,|\n    \n}", "local t = {\n    a = 1|\n}",
+		"local f = |x| -> int {\n    return x,|\n}", "if x then\n    y = 1,|\nend", "local t = {\n    a = \"x,\"|\n}",
+	])
+	{
+		assert.strictEqual(plan(text), null, text);
+	}
+	assert.strictEqual(plan("function name(\n    a,|\n)", { params: false, tables: true }), null);
+	assert.strictEqual(plan("local t = {\n    a,|\n}", { params: true, tables: false }), null);
+	assert(plan("local t = {\n    a,|\n}", { params: false, tables: true }));
+});
+
+test("auto format: the suggestions shown in grey", function ()
+{
+	const all = { parens: true, keyAssign: true, blockWords: true };
+	const at = (textWithCursor, options) =>
+	{
+		const offset = textWithCursor.indexOf("@");
+		const s = autoFormat.inlineSuggestionAt(textWithCursor.replace("@", ""), offset, options || all);
+		return s && [s.kind, s.insert, s.snippet || null];
+	};
+	// `()` after `function`, with or without a name.
+	for (const text of ["function@", "function name@", "function obj.sub:method@", "local f = function@", "foo(function@)", "  local function name@", "x = {\n    f = function@\n}", "local g = function@ -- c".replace(" -- c", "")])
+	{
+		assert.deepStrictEqual(at(text), ["parens", "()", "($0)"], text);
+	}
+	for (const text of [
+		"function@()", "function name@(a)", "functions@", "local function@", "public function@", "export function@", "x: function@", "local t: int|function@", "-- function@",
+		"\"function@\"", "function name(@", "myfunction@", "obj.function@",
+	])
+	{
+		assert.strictEqual(at(text), null, text);
+	}
+	// ` = ` after the key of a table field.
+	assert.deepStrictEqual(at("local t = { [\"a\"]@ }"), ["key", " = ", null]);
+	assert.deepStrictEqual(at("local t = {\n    [\"a\"]@\n}"), ["key", " = ", null]);
+	assert.deepStrictEqual(at("local t = { x = 1, [2]@"), ["key", " = ", null]);
+	assert.deepStrictEqual(at("local t = {\n    x = 1,\n    ['k']@\n}"), ["key", " = ", null]);
+	for (const text of ["t[\"a\"]@", "local t = { [\"a\"]@ = 1 }", "local t = {\n    x = 1\n    [2]@\n}", "local x = t[\"a\"]@", "print([\"a\"]@)", "local t = { f([\"a\"]@) }"])
+	{
+		assert.strictEqual(at(text), null, text);
+	}
+	// ` then` and ` do` after the header of a block; the space is not doubled.
+	assert.deepStrictEqual(at("if x@"), ["then", " then", null]);
+	assert.deepStrictEqual(at("if x @"), ["then", "then", null]);
+	assert.deepStrictEqual(at("    elseif a and b@"), ["then", " then", null]);
+	assert.deepStrictEqual(at("if f(x) == 1@"), ["then", " then", null]);
+	assert.deepStrictEqual(at("while n < 3@"), ["do", " do", null]);
+	assert.deepStrictEqual(at("for i = 1, 10@"), ["do", " do", null]);
+	assert.deepStrictEqual(at("for k, v in pairs(t)@"), ["do", " do", null]);
+	for (const text of [
+		"if x then@", "if x then y end@", "if@", "if a and@", "if f(@", "if (a@", "while@", "while x do@", "for@", "for k@", "for i =@", "for i = 1@", "x = 1@", "-- if x@", "if x@ == 1",
+		"print(\"if x\"@",
+	])
+	{
+		assert.strictEqual(at(text), null, text);
+	}
+	// Each kind is a setting.
+	assert.strictEqual(at("function@", { parens: false, keyAssign: true, blockWords: true }), null);
+	assert.strictEqual(at("local t = { [\"a\"]@ }", { parens: true, keyAssign: false, blockWords: true }), null);
+	assert.strictEqual(at("if x@", { parens: true, keyAssign: true, blockWords: false }), null);
+});
+
+test("auto format: names written twice", function ()
+{
+	const dups = (text) => autoFormat.findDuplicates(text).map(d => d.kind + ":" + d.name + "@" + d.line + ":" + d.col + "<" + d.firstLine);
+	assert.deepStrictEqual(dups("function f(a, a) end"), ["param:a@0:14<0"]);
+	assert.deepStrictEqual(dups("function f(a: int, b, a: string) end"), ["param:a@0:22<0"]);
+	assert.deepStrictEqual(dups("function f(\n    a: int,\n    a: int\n)\nend"), ["param:a@2:4<1"]);
+	assert.deepStrictEqual(dups("function obj:method(x, y, x) end"), ["param:x@0:26<0"]);
+	assert.deepStrictEqual(dups("local f = function(x, y, x) end"), ["param:x@0:25<0"]);
+	assert.deepStrictEqual(dups("local f = |a, b, a| -> a"), ["param:a@0:17<0"]);
+	assert.deepStrictEqual(dups("local f = |a: int, b: int, a: int| -> a"), ["param:a@0:27<0"]);
+	assert.deepStrictEqual(dups("function f(a, ...rest, a) end"), ["param:a@0:23<0"]);
+	assert.deepStrictEqual(dups("function f(a, a, a) end").length, 2, "every repetition");
+	// Table keys: names and `[\"name\"]` are the same key, numbers are keys of their own.
+	assert.deepStrictEqual(dups("local t = { a = 1, b = 2, a = 3 }"), ["key:a@0:26<0"]);
+	assert.deepStrictEqual(dups("local t = { a = 1, [\"a\"] = 2 }"), ["key:a@0:20<0"]);
+	assert.deepStrictEqual(dups("local t = { [1] = 1, [1] = 2 }"), ["key:1@0:22<0"]);
+	assert.deepStrictEqual(dups("local t = {\n    a = 1,\n    b = 2,\n    a = 3\n}"), ["key:a@3:4<1"]);
+	assert.deepStrictEqual(dups("local t = { 1, 2, a = 1, a = 2 }"), ["key:a@0:25<0"]);
+	// What is no repetition: other lists, nested tables, calls, values, one name in a call.
+	for (const text of [
+		"foo(a, a)", "local x = a | b | a", "function f(a = g(b, b), b) end", "local t = { a = 1, inner = { a = 2 } }", "local t = { x = { y = 1 }, y = 2 }",
+		"local t = { a = 1, a }", "local t = { [f(1)] = 1, [f(1)] = 2 }", "local t = { {a = 1}, {a = 2} }", "local t = { f(a = 1), a = 1 }", "function f(a, b, c) end",
+		"function f(a) local a = 1 end", "local s = \"function f(a, a)\"", "-- function f(a, a)",
+	])
+	{
+		assert.deepStrictEqual(dups(text), [], text);
+	}
+});
+
+test("auto format: the diagnostics of names written twice and of closers that do not fit", function ()
+{
+	const run = (text, options) => lintSource(text, { path: "/ws/a.pluto", requires: [] }, { index: { files: new Map(), resolveModule: () => null } }, Object.assign({ requires: false, calls: false }, options));
+	const dup = run("function f(a, a) end\nlocal t = { x = 1, x = 2 }", { duplicates: "warning" });
+	assert.deepStrictEqual(dup.map(p => [p.line, p.col, p.severity, p.code]), [[0, 14, "warning", "duplicate-param"], [1, 19, "warning", "duplicate-key"]]);
+	assert(dup[0].message.includes("Parameter 'a' is already declared (line 1)"), dup[0].message);
+	assert(dup[1].message.includes("Key 'x' is already set"), dup[1].message);
+	assert.strictEqual(run("function f(a, a) end", { duplicates: "error" })[0].severity, "error");
+	assert.deepStrictEqual(run("function f(a, a) end", { duplicates: "off" }), []);
+	assert.deepStrictEqual(run("function f(a, a) end", {}), [], "without the option nothing is checked");
+	const brackets = run("local t = { a = 1 ]\nlocal u = (1 }", { brackets: "suggest" });
+	assert.deepStrictEqual(brackets.map(p => [p.line, p.col, p.severity, p.code]), [[0, 18, "error", "bracket-mismatch"], [1, 13, "error", "bracket-mismatch"]]);
+	assert(brackets[0].message.includes("Expected '}'") && brackets[0].message.includes("line 1") && brackets[0].message.includes("found ']'"), brackets[0].message);
+	assert.deepStrictEqual(run("local t = { a = 1 ]", { brackets: "off" }), []);
+	assert.strictEqual(run("local t = { a = 1 ]", { brackets: "auto" }).length, 1, "auto reports it as well");
+	// A forgotten closer, a stray one, strings and comments are not closers that do not fit.
+	for (const text of ["local t = { a[1 }", "x = )", "local s = \"{]\"", "-- { ]", "local t = { a[1] }", "foo(a, b)"])
+	{
+		assert.deepStrictEqual(run(text, { brackets: "suggest" }), [], text);
+	}
+	const mismatches = autoFormat.findBracketMismatches("local t = { f(1, 2] }");
+	assert.deepStrictEqual([mismatches[0].found, mismatches[0].expected, mismatches[0].openLine], ["]", ")", 0]);
+	// Russian texts.
+	require("../src/i18n").setLanguage("ru");
+	try
+	{
+		assert(run("function f(a, a) end", { duplicates: "warning" })[0].message.includes("Параметр 'a' уже объявлен"));
+		assert(run("x = { ]", { brackets: "suggest" })[0].message.includes("Ожидалась '}'"));
+	}
+	finally
+	{
+		require("../src/i18n").setLanguage("en");
+	}
+});
+
+test("auto format: the settings exist", function ()
+{
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	assert.strictEqual(props["pluto.format.newLineAfterComma"].default, true);
+	assert.strictEqual(props["pluto.format.newLineAfterCommaDelayMs"].default, 700);
+	assert.strictEqual(props["pluto.format.suggestParens"].default, true);
+	assert.strictEqual(props["pluto.format.suggestTableKeyAssign"].default, true);
+	assert.strictEqual(props["pluto.format.suggestBlockWords"].default, true);
+	assert.strictEqual(props["pluto.format.fixMismatchedBrackets"].default, "suggest");
+	assert.deepStrictEqual(props["pluto.format.fixMismatchedBrackets"].enum, ["off", "suggest", "auto"]);
+	assert.strictEqual(props["pluto.format.fixMismatchedBrackets"].enumDescriptions.length, 3);
+	assert.strictEqual(props["pluto.format.fixMismatchedBracketsDelayMs"].default, 1200);
+	assert.strictEqual(props["pluto.diagnostics.duplicateParams"].default, "warning");
+	assert.deepStrictEqual(props["pluto.diagnostics.duplicateParams"].enum, ["warning", "error", "off"]);
+});

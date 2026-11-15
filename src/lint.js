@@ -8,6 +8,7 @@ const { tokenize, RESERVED } = require("./parser");
 const builtins = require("./builtins");
 const { normalizePath } = require("./workspaceIndex");
 const { t } = require("./i18n");
+const { findDuplicates, findBracketMismatches } = require("./autoFormat");
 
 /**
  * @typedef {{ line: number, col: number, endLine: number, endCol: number, severity: "error"|"warning", message: string, code: string }} LintProblem
@@ -50,6 +51,28 @@ function lintSource(text, file, analyzer, options)
 	if (options.calls !== false)
 	{
 		lintCalls(text, file, analyzer, out);
+	}
+	// Names written twice: `function f(a, a)`, `{ a = 1, a = 2 }`.
+	if (options.duplicates == "warning" || options.duplicates == "error")
+	{
+		for (const d of findDuplicates(text))
+		{
+			out.push({
+				line: d.line, col: d.col, endLine: d.line, endCol: d.endCol, severity: options.duplicates, code: d.kind == "param" ? "duplicate-param" : "duplicate-key",
+				message: t(d.kind == "param" ? "dup.param" : "dup.key", d.name, d.firstLine + 1),
+			});
+		}
+	}
+	// A closer that does not fit the last opened bracket: `{ ]`.
+	if (options.brackets && options.brackets != "off")
+	{
+		for (const m of findBracketMismatches(text))
+		{
+			out.push({
+				line: m.line, col: m.col, endLine: m.line, endCol: m.endCol, severity: "error", code: "bracket-mismatch",
+				message: t("bracket.mismatch", m.expected, m.found, m.openLine + 1),
+			});
+		}
 	}
 	return out;
 }

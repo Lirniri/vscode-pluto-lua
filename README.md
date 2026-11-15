@@ -2,6 +2,8 @@
 
 For information regarding the installation, features, & usage of this editor integration, [have a look at our documentation](https://plutolang.github.io/docs/Editor%20Integration).
 
+Русская версия этого файла: [README.ru.md](README.ru.md).
+
 ## Features in Visual Studio Code
 
 Besides syntax highlighting and snippets, the VS Code extension provides language features for `.pluto` files:
@@ -18,6 +20,8 @@ Besides syntax highlighting and snippets, the VS Code extension provides languag
 - **Lua syntax check**: with `pluto.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
 - **Paths of files in JSON files**: a path such as `"entry": "src/main.pluto"` that points to a missing file gets a warning, with a quick fix when the file was only moved. See [JSON path checks](#json-path-checks).
 - **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
+- **Default values of parameters**: the type of a parameter that has no default value (`test: bool`) gets a yellow wavy line while the cursor is on it, with a tooltip, and the values that fit the type (`= false`, `= true`) are suggested, by themselves when the cursor rests. See [Default values of parameters](#default-values-of-parameters).
+- **Typing helpers**: a new line after the comma of a multi-line list (after a pause, so you can go on typing), grey suggestions that `Tab` takes (`()` after `function`, ` = ` after `["key"]`, ` then` / ` do` after a block header), a warning for a parameter or table key written twice, and a quick fix (or an automatic fix after a pause) for a closing bracket that does not fit the last opened one (`{ ]`). See [Typing helpers](#typing-helpers).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -60,6 +64,11 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.completion.keywords` | `true` | Suggest keywords. |
 | `pluto.completion.documentWords` | `true` | Suggest other words of the current document. |
 | `pluto.completion.autoTriggerTypes` | `true` | Open the list of types by itself after `:` in type hints (`a: `, `): `, `local x: `), in Pluto files only. |
+| `pluto.completion.defaultValues` | `true` | Suggest the values a parameter can get as its default (`= false`, `= 0`, `= nil`, ...) after its type. |
+| `pluto.completion.defaultValuesDelayMs` | `800` | How long the cursor has to rest after the type before that list opens by itself. `0` = only on `Ctrl+Space`. |
+| `pluto.highlight.paramNoDefault` | `true` | Yellow wavy line under the type of the parameter the cursor is on when it has no default value. |
+| `pluto.highlight.paramNoDefaultColor` | `#E5C07B` | Color of that line in dark and high contrast themes. |
+| `pluto.highlight.paramNoDefaultLightColor` | `#BF8803` | Its color in light themes. |
 | `pluto.highlight.nullableTypes` | `true` | Highlight nullable types (`int?`, `?string`, `Vehicle?`). |
 | `pluto.highlight.nullableTypeColor` | `#FFFFFF` | Their color in dark and high contrast themes. |
 | `pluto.highlight.nullableTypeLightColor` | `#000000` | Their color in light themes. |
@@ -76,6 +85,14 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.json.notifyNoFolder` | `true` | Tell once per window that without an open folder paths are checked only next to the JSON file. |
 | `pluto.format.multilineParams` | `true` | Smart formatting of multi-line parameter lists of functions. |
 | `pluto.format.multilineTables` | `true` | Smart formatting of multi-line tables. |
+| `pluto.format.newLineAfterComma` | `true` | Start a new line after a comma typed at the end of an element of a multi-line list, unless you go on typing. |
+| `pluto.format.newLineAfterCommaDelayMs` | `700` | Pause before that line starts; typing or moving the cursor cancels it. `0` = at once. |
+| `pluto.format.suggestParens` | `true` | Grey `()` after `function`; `Tab` takes it and puts the cursor between the brackets. |
+| `pluto.format.suggestTableKeyAssign` | `true` | Grey ` = ` after the key `["name"]` of a table field. |
+| `pluto.format.suggestBlockWords` | `true` | Grey ` then` after `if` / `elseif` and ` do` after `while` / `for` headers. |
+| `pluto.format.fixMismatchedBrackets` | `suggest` | A closer that does not fit (`{ ]`): `off`, `suggest` (underline and quick fix) or `auto` (also replaced by itself after a pause). |
+| `pluto.format.fixMismatchedBracketsDelayMs` | `1200` | The pause before `auto` replaces the closer. `0` = at once. |
+| `pluto.diagnostics.duplicateParams` | `warning` | A name written twice in parameters (`function f(a, a)`) or a key twice in a table: `warning`, `error` or `off`. |
 | `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
@@ -208,6 +225,67 @@ function name(
 
 It is careful not to break your code: strings and comments are skipped; nested tables and lists work on their own level; a line that ends with an opening bracket or an unfinished expression (`a = 1 +`) gets no comma; `...` stays the last parameter without a comma; statements inside a function in a table, the body of a lambda (`-> int { ... }`) and the arguments of a call are left alone; and the automatic `end` keeps working. Both can be turned off, `pluto.format.multilineParams` for parameter lists and `pluto.format.multilineTables` for tables.
 
+### Default values of parameters
+
+While you write the parameters of a function declaration in a Pluto file, a parameter that has a type but no default value is marked, and the values that fit its type are offered.
+
+```pluto
+function name(test: bool|)          -- the cursor is right after the type
+```
+
+- **Yellow line.** The type (`bool`) gets a yellow wavy line while the cursor is on the parameter; hover it for a tooltip such as ``` `test` has no default value. You can give it `= false`, `= true`. ``` The line goes away when the cursor leaves the parameter or a comma is typed, and it is not shown for a parameter that already has `= value`, for a parameter without a type, or for a type that is still being typed (`bo`). It is a hint of the editor, not a message in the Problems panel. Switch it off with `pluto.highlight.paramNoDefault`; its colors are `pluto.highlight.paramNoDefaultColor` and `pluto.highlight.paramNoDefaultLightColor`.
+- **Values by type.** With the cursor right after the type (or after a space behind it) the list of suggestions starts with the values that fit, inserted as ` = value`:
+
+  | Type | Suggested |
+  | --- | --- |
+  | `bool` | `= false`, `= true` |
+  | `int` | `= 0`, `= 1`, `= -1` |
+  | `float` | `= 0.0`, `= 1.0`, `= -1.0` |
+  | `number` | `= 0`, `= 1`, `= -1` |
+  | `string` | `= ""` |
+  | `table`, `{ x: int }` | `= {}` |
+  | `function` | `= function() end` |
+  | `any` | `= nil`, `= false`, `= 0`, `= ""`, `= {}` |
+  | a class (`Vehicle`) | `= new Vehicle()` |
+  | `int?`, `?string`, ... | the values of the type, then `= nil` |
+  | `int\|string` | the values of each member |
+
+  The types stay in the list behind them (`bool` can still become `boolean`). Press `Ctrl+Space` to open the list yourself.
+- **By itself.** If the cursor rests right after the type for `pluto.completion.defaultValuesDelayMs` (800 ms), the list opens without a key. Moving the cursor or typing starts the wait again, and the list is not opened twice for the same place. Set the delay to `0` to switch this off, or `pluto.completion.defaultValues` to `false` to switch off the values altogether.
+
+### Typing helpers
+
+Small helps while you type, for `.pluto` files and, where it makes sense, `.lua` files (while `pluto.lua.enable` is on). Each one has its own setting.
+
+**A new line after the comma.** In a multi-line parameter list or table (the closing `)` or `}` is on a line of its own below), a comma typed at the end of an element starts a new line with the indentation of the elements, as `end` appears after Enter. The new line comes after a short pause (`pluto.format.newLineAfterCommaDelayMs`, 700 ms): if you go on typing or move the cursor, it does not come, so `test: bool = false, test1` can stay on one line. One-line lists, calls and a line that already has an empty line below it are left alone.
+
+```pluto
+function name(
+    test: bool = false,|          -- stop for a moment after the comma
+)
+
+-- becomes
+function name(
+    test: bool = false,
+    |
+)
+```
+
+**Suggestions in grey.** The text that would follow is shown in grey after the cursor, and `Tab` takes it (these are the inline suggestions of VS Code, `editor.inlineSuggest.enabled`):
+
+| You typed (`▮` is the cursor) | Grey suggestion | After `Tab` | Setting |
+| --- | --- | --- | --- |
+| `function▮`, `function name▮`, `local f = function▮` | `()` | `function(▮)`, the cursor is between the brackets | `pluto.format.suggestParens` |
+| `["key"]▮` at the start of a table field | ` = ` | `["key"] = ▮` | `pluto.format.suggestTableKeyAssign` |
+| `if x▮`, `elseif a and b▮` | ` then` | `if x then▮` (Enter then adds the `end`) | `pluto.format.suggestBlockWords` |
+| `while x▮`, `for i = 1, 3▮`, `for k, v in pairs(t)▮` | ` do` | `... do▮` | `pluto.format.suggestBlockWords` |
+
+Nothing is suggested when the text is already there (`function name(`), when the header is not finished (`if a and`), in strings and comments, for a type (`x: function`), or for `local function` / `public function` without a name yet. With inline suggestions switched off, the `()` is an item of the completion list instead.
+
+**Names written twice.** A parameter that has the same name as an earlier parameter of the function or lambda (`function f(a, a)`, `|x, x| -> x`) and a key that is set twice in one table (`{ a = 1, a = 2 }`, also `a` and `["a"]`) get a warning on the second one. Set `pluto.diagnostics.duplicateParams` to `error` or `off` to change that.
+
+**A closer that does not fit.** If you type `]` where the last opened bracket is `{` and no other open bracket takes a `]`, it is underlined with `Expected '}' to close the bracket opened on line N`, and the quick fix (`Ctrl+.`) replaces it. `pluto.format.fixMismatchedBrackets` chooses what happens: `off` ignores it, `suggest` (default) underlines it and offers the fix, `auto` also replaces it by itself when you stop typing for `pluto.format.fixMismatchedBracketsDelayMs` (1200 ms). Typing or moving the cursor within that time cancels the replacement, and it is one step in the undo history. A forgotten closer (`{ a[1 }`), a stray one, and brackets in strings and comments are not touched.
+
 ### Commands
 
 - **Pluto: Run Script** — runs the current file with `pluto`.
@@ -244,6 +322,11 @@ The extension is plain JavaScript and needs no build step.
 | `src/ignore.js`, `src/workspaceFilter.js` | `.gitignore`-style ignore files and exclude globs |
 | `src/providers.js` | Completion, hover, signature help, definition, outline, folding |
 | `src/builtins.js`, `src/builtins.generated.json` | Keywords and standard library |
+| `src/highlightColors.js` | Highlight colors from the settings, rules for `editor.tokenColorCustomizations` |
+| `src/jsonPaths.js` | Checks of the paths of files in JSON files |
+| `src/multilineFormat.js`, `src/multilineEditor.js` | Smart formatting of multi-line lists and tables |
+| `src/defaultValues.js`, `src/defaultValuesEditor.js` | Default values of parameters: the line, the list, the timer |
+| `src/autoFormat.js`, `src/autoFormatEditor.js` | Typing helpers: new line after a comma, grey suggestions, duplicate names, closers that do not fit |
 
 - Open this folder in VS Code and press `F5` to try the extension in a new window.
 - `npm test` runs the grammar tests and the language feature tests.

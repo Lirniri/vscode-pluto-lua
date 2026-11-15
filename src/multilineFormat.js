@@ -298,4 +298,4 @@ function planFirstElement(text, line, col, options, unit, eol)
 	};
 }
 
-module.exports = { stripComment, analyze, planEnter, planFirstElement, indentOf, isParamsParen, isLambdaBody };
+module.exports = { stripComment, analyze, planEnter, planFirstElement, indentOf, isParamsParen, isLambdaBody, UNFINISHED };

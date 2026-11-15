@@ -10,7 +10,7 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.25.0",
+	"version": "0.27.0",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -326,6 +326,35 @@
 					"minimum": 1,
 					"description": "%pluto.hover.maxDeclarations.description%"
 				},
+				"pluto.highlight.paramNoDefault": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.highlight.paramNoDefault.markdownDescription%"
+				},
+				"pluto.highlight.paramNoDefaultColor": {
+					"type": "string",
+					"format": "color-hex",
+					"default": "#E5C07B",
+					"markdownDescription": "%pluto.highlight.paramNoDefaultColor.markdownDescription%"
+				},
+				"pluto.highlight.paramNoDefaultLightColor": {
+					"type": "string",
+					"format": "color-hex",
+					"default": "#BF8803",
+					"markdownDescription": "%pluto.highlight.paramNoDefaultLightColor.markdownDescription%"
+				},
+				"pluto.completion.defaultValues": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.completion.defaultValues.markdownDescription%"
+				},
+				"pluto.completion.defaultValuesDelayMs": {
+					"type": "integer",
+					"default": 800,
+					"minimum": 0,
+					"maximum": 10000,
+					"markdownDescription": "%pluto.completion.defaultValuesDelayMs.markdownDescription%"
+				},
 				"pluto.highlight.nullableTypes": {
 					"type": "boolean",
 					"default": true,
@@ -477,6 +506,58 @@
 						}
 					},
 					"markdownDescription": "%pluto.highlight.tableBracketColors.markdownDescription%"
+				},
+				"pluto.format.newLineAfterComma": {
+					"type": "boolean",
+					"default": true,
+					"scope": "resource",
+					"markdownDescription": "%pluto.format.newLineAfterComma.markdownDescription%"
+				},
+				"pluto.format.newLineAfterCommaDelayMs": {
+					"type": "integer",
+					"default": 700,
+					"minimum": 0,
+					"maximum": 10000,
+					"markdownDescription": "%pluto.format.newLineAfterCommaDelayMs.markdownDescription%"
+				},
+				"pluto.format.suggestParens": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.format.suggestParens.markdownDescription%"
+				},
+				"pluto.format.suggestTableKeyAssign": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.format.suggestTableKeyAssign.markdownDescription%"
+				},
+				"pluto.format.suggestBlockWords": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%pluto.format.suggestBlockWords.markdownDescription%"
+				},
+				"pluto.format.fixMismatchedBrackets": {
+					"type": "string",
+					"enum": ["off", "suggest", "auto"],
+					"default": "suggest",
+					"enumDescriptions": [
+						"%pluto.format.fixMismatchedBrackets.off%",
+						"%pluto.format.fixMismatchedBrackets.suggest%",
+						"%pluto.format.fixMismatchedBrackets.auto%"
+					],
+					"markdownDescription": "%pluto.format.fixMismatchedBrackets.markdownDescription%"
+				},
+				"pluto.format.fixMismatchedBracketsDelayMs": {
+					"type": "integer",
+					"default": 1200,
+					"minimum": 0,
+					"maximum": 10000,
+					"markdownDescription": "%pluto.format.fixMismatchedBracketsDelayMs.markdownDescription%"
+				},
+				"pluto.diagnostics.duplicateParams": {
+					"type": "string",
+					"enum": ["warning", "error", "off"],
+					"default": "warning",
+					"markdownDescription": "%pluto.diagnostics.duplicateParams.markdownDescription%"
 				},
 				"pluto.format.multilineParams": {
 					"type": "boolean",

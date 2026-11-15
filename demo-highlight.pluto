@@ -84,6 +84,13 @@ $declare function tonumber(str: string, base: ?number): number
 local x = "hello"
 print($getproptype(x)) --> string
 
+function name(
+    test: bool = false,
+    
+)
+
+
+
 $type Point = { x: number, y: number }
 
 local p: Point = { x = 1, y = 2 }

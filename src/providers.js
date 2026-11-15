@@ -7,6 +7,7 @@ const fs = require("fs");
 const { formatFunctionSource } = require("./functionSource");
 const { collectReturnTags, describeReturnType } = require("./returnTags");
 const { isTypeHintPosition, isNullableType, describeNullable, unionAt, describeUnion } = require("./typeHints");
+const { paramAt, isCompleteType, defaultValuesFor } = require("./defaultValues");
 const builtins = require("./builtins");
 const { formatSignature, formatParams, computeFolding } = require("./parser");
 const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES, primitiveDoc } = require("./analysis");
@@ -504,6 +505,51 @@ const typeItems = function (file, line, glue)
 	return items;
 };
 
+/**
+ * Values for the default of a parameter whose cursor is right after a complete type (`test: bool|`): `= false`, `= true`.
+ * @returns {vscode.CompletionItem[]|null}
+ */
+const defaultValueItems = function (document, position, file, before)
+{
+	if (!isPlutoDocument(document) || !vscode.workspace.getConfiguration("pluto").get("completion.defaultValues", true))
+	{
+		return null;
+	}
+	const text = document.getText();
+	const offset = document.offsetAt(position);
+	const info = paramAt(text, offset);
+	if (!info || info.hasDefault || offset < info.typeEnd || text.slice(info.typeEnd, offset).trim() != "")
+	{
+		return null;
+	}
+	const names = new Set();
+	for (const sym of [...analyzer.visibleLocals(file, info.line).values(), ...index.globals()])
+	{
+		if ((sym.kind == "class" || sym.kind == "enum") && !sym.container)
+		{
+			names.add(sym.name);
+		}
+	}
+	const isClass = (name) => names.has(name);
+	if (!isCompleteType(info.typeText, isClass))
+	{
+		return null;
+	}
+	const values = defaultValuesFor(info.typeText, isClass);
+	const space = /\s$/.test(before) ? "" : " ";
+	return values.map(function (value, i)
+	{
+		const item = new vscode.CompletionItem("= " + value, vscode.CompletionItemKind.Value);
+		item.insertText = space + "= " + value;
+		// Inserted at the cursor, next to the type: it must not replace the word in front of it.
+		item.range = new vscode.Range(position, position);
+		item.detail = t("defaultValue.detail", info.name);
+		item.sortText = "00" + i;
+		item.preselect = i == 0;
+		return item;
+	});
+};
+
 const completionProvider = {
 		/**
 		 * @param {vscode.TextDocument} document
@@ -548,6 +594,12 @@ const completionProvider = {
 			if (context.triggerCharacter == " " && !inTypeHint)
 			{
 				return undefined; // a space only opens the list inside of type hints
+			}
+			// The type is complete (`test: bool|`): the values it can be given by default come first.
+			const values = defaultValueItems(document, position, file, before);
+			if (values && values.length && !context.triggerCharacter)
+			{
+				return inTypeHint ? values.concat(typeItems(file, position.line, "")) : values;
 			}
 			if (inTypeHint)
 			{
