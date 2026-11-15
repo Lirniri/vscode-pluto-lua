@@ -10,7 +10,7 @@
 		"diagnostics",
 		"linter"
 	],
-	"version": "0.18.0",
+	"version": "0.22.0",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -292,6 +292,119 @@
 					"type": "string",
 					"default": "#000000",
 					"markdownDescription": "%pluto.highlight.nullableTypeLightColor.markdownDescription%"
+				},
+				"pluto.highlight.applyColors": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "%pluto.highlight.applyColors.markdownDescription%"
+				},
+				"pluto.highlight.colors": {
+					"type": "object",
+					"default": {},
+					"markdownDescription": "%pluto.highlight.colors.markdownDescription%",
+					"additionalProperties": false,
+					"properties": {
+						"functionName": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.functionName%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"functionKeyword": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.functionKeyword%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"parameter": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.parameter%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"type": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.type%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"returnType": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.returnType%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"typeColon": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.typeColon%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"keyword": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.keyword%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"operator": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.operator%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"constant": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.constant%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"modifier": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.modifier%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						},
+						"accessor": {
+							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+							"markdownDescription": "%pluto.highlight.colors.accessor%",
+							"properties": {
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							}
+						}
+					}
+				},
+				"pluto.highlight.tableBracketColors": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
+						"properties": {
+							"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
+							"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+						}
+					},
+					"markdownDescription": "%pluto.highlight.tableBracketColors.markdownDescription%"
 				},
 				"pluto.autoCloseBlocks": {
 					"type": "boolean",

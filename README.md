@@ -12,6 +12,9 @@ Besides syntax highlighting and snippets, the VS Code extension provides languag
 - **Go to Definition** (`F12` / `Ctrl+Click`) for classes, methods, functions, variables, and the file behind `require("...")`.
 - **Outline & breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), and **folding** of blocks, comments and `--#region` markers.
 - **Type hints**: typing `:` in `function f(a: `, `function f(): ` or `local x: ` opens the list of types (built-in types and your classes, each also as nullable `int?`); nullable types are highlighted and explained on hover (`(nullable type) int? — Can be int or nil`), also in signature help. Both spellings, `int?` and `?int`, are understood.
+- **Peek Code**: a **Peek Code** link at the bottom of a hover (`Показать код` in Russian) opens the declaration in a wide peek window with the code on the left and the list of locations on the right, even when there is only one declaration.
+- **Union types** (`int|string`, `?int|string?`): hover the `|` to see what the whole union can hold, with `nil` made explicit.
+- **Custom highlight colors**: colors and font styles of functions, parameters, types, return types, keywords, operators, table braces by nesting depth and more, see [Highlight colors](#highlight-colors).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Live diagnostics** (squiggles and the Problems panel):
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
@@ -57,6 +60,9 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.highlight.nullableTypes` | `true` | Highlight nullable types (`int?`, `?string`, `Vehicle?`). |
 | `pluto.highlight.nullableTypeColor` | `#FFFFFF` | Their color in dark and high contrast themes. |
 | `pluto.highlight.nullableTypeLightColor` | `#000000` | Their color in light themes. |
+| `pluto.highlight.applyColors` | `false` | Apply the colors below to Pluto files (off = the colors of your theme). |
+| `pluto.highlight.colors` | `{}` | Color and style per kind of token, see [Highlight colors](#highlight-colors). |
+| `pluto.highlight.tableBracketColors` | `[]` | Colors of the braces `{ }` of tables by nesting depth. |
 | `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
 | `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
 | `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
@@ -74,6 +80,45 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `pluto.diagnostics.enable` | `true` | Show compiler errors and built-in checks in the editor and the Problems panel. |
 | `pluto.diagnostics.compilerPath` | `""` | Path to `plutoc`/`pluto`, e.g. `${workspaceFolder}/bin/pluto/0.13.2/plutoc.exe`. Empty = search the workspace, then `PATH`. |
 | `pluto.diagnostics.debounceMs` | `400` | Delay after the last edit before a file is checked again. |
+
+### Highlight colors
+
+The extension does not change how your theme looks until you turn this on. Set `pluto.highlight.applyColors` to `true` and describe only the kinds of tokens you want to recolor:
+
+```jsonc
+"pluto.highlight.applyColors": true,
+"pluto.highlight.colors": {
+    "functionName": { "color": "#FF8800", "fontStyle": "bold" },
+    "parameter":    { "color": "#9CDCFE", "fontStyle": "italic" },
+    "returnType":   { "color": "#4EC9B0" },
+    "keyword":      "#C586C0"                   // short form: a color, optionally followed by bold / italic / underline / strikethrough
+},
+"pluto.highlight.tableBracketColors": ["#E6B450", "#59C2FF", "#AAD94C"]
+```
+
+Each entry is either an object with `color` and `fontStyle`, or a short string such as `"#FF8800 bold"`. In `settings.json` the `color` of the object form gets a color picker (click the swatch next to the value). `fontStyle` is one of `normal`, `bold`, `italic`, `bold italic`, `underline`, `bold underline`, `italic underline`. A color can carry transparency (`#FF880080`).
+
+A wrong value is never applied: the color of your theme stays, and the extension shows a warning that names the setting and the value, with a button that opens `settings.json`. This covers a value that is not a color or style (`"blue"`, a typo in `fontStyle`), a fully transparent color (`#0000`, `#00000000`), which would make the text invisible, and an unknown key (`"functonName"`). An empty string `""` simply means "not set".
+
+| Key | What it colors |
+| --- | --- |
+| `functionName` | Names of declared functions and methods, also with long paths (`function api.handlers.add`). |
+| `functionKeyword` | The `function` keyword and the `->` of lambdas. |
+| `parameter` | Parameters of functions and lambdas (`\|x: int\| -> int { ... }`). |
+| `type` | Types in type hints: `int`, `string`, `Vehicle`, `int?`, `int|string`, in parameters and variables. |
+| `returnType` | Only the type a function or a lambda returns: `void` in `function f(): void`, `int` in `\|x: int\| -> int { ... }`. Types in the parameters keep the color of `type`. |
+| `typeColon` | The `:` before a type in a type hint. |
+| `keyword` | `if`, `then`, `end`, `return`, `for`, ... |
+| `operator` | `=`, `+`, `and`, `?`, `??`, ... |
+| `constant` | `true`, `false`, `nil`. |
+| `modifier` | `local`, `public`, `private`, `static`, ... |
+| `accessor` | The `.` between names, as in `a.b.c`. |
+
+`pluto.highlight.tableBracketColors` colors the braces `{ }` of nested tables by depth: the first entry is for the outermost table, the next one for the table inside it, and so on. A list shorter than the depth repeats, and up to 8 levels are told apart. Entries are written like above, e.g. `[{ "color": "#E6B450", "fontStyle": "bold" }, "#59C2FF"]`.
+
+The extension keeps these colors as rules named `Pluto: ...` in `editor.tokenColorCustomizations` of your user settings. Your own rules there are left alone, and turning `pluto.highlight.applyColors` off removes ours. The rules only match Pluto scopes (`....pluto`), so other languages are not affected.
+
+[demo-highlight.pluto](demo-highlight.pluto) in this repository contains every kind of token to look at while tuning the colors. Nullable types (`int?`) have their own settings, `pluto.highlight.nullableTypeColor` and `pluto.highlight.nullableTypeLightColor`, because they are colored on top of the theme.
 
 ### Commands
 

@@ -53,6 +53,139 @@ function describeNullable(type)
 	};
 }
 
+/**
+ * The union type (`int|string`, `?int|string`) whose `|` is at `character` of a line, if that
+ * `|` is inside a type hint (a lambda `|x|` or a bitwise or is not).
+ * @param {string} lineText
+ * @param {number} character
+ * @returns {{ start: number, end: number, members: { text: string, base: string, nullable: boolean }[] }|null}
+ */
+function unionAt(lineText, character)
+{
+	if (lineText[character] != "|")
+	{
+		return null;
+	}
+	const members = [];
+	// Members to the left of the `|`, nearest first.
+	let k = character;
+	let start = character;
+	for (;;)
+	{
+		let j = k - 1;
+		while (j >= 0 && /\s/.test(lineText[j]))
+		{
+			--j;
+		}
+		const end = j + 1;
+		const trailing = lineText[j] == "?";
+		if (trailing)
+		{
+			--j;
+		}
+		const nameEnd = j + 1;
+		while (j >= 0 && /[\w.]/.test(lineText[j]))
+		{
+			--j;
+		}
+		if (j + 1 == nameEnd)
+		{
+			return null;
+		}
+		const base = lineText.slice(j + 1, nameEnd);
+		const leading = lineText[j] == "?";
+		if (leading)
+		{
+			--j;
+		}
+		start = j + 1;
+		members.unshift({ text: lineText.slice(start, end).replace(/\s+/g, ""), base, nullable: leading || trailing });
+		while (j >= 0 && /\s/.test(lineText[j]))
+		{
+			--j;
+		}
+		if (lineText[j] != "|")
+		{
+			break;
+		}
+		k = j;
+	}
+	if (!isTypeHintPosition(lineText.slice(0, start)))
+	{
+		return null;
+	}
+	// Members to the right.
+	let end = character;
+	let pos = character;
+	while (lineText[pos] == "|")
+	{
+		let j = pos + 1;
+		while (j < lineText.length && /\s/.test(lineText[j]))
+		{
+			++j;
+		}
+		const from = j;
+		const leading = lineText[j] == "?";
+		if (leading)
+		{
+			++j;
+		}
+		const nameStart = j;
+		while (j < lineText.length && /[\w.]/.test(lineText[j]))
+		{
+			++j;
+		}
+		if (j == nameStart)
+		{
+			break;
+		}
+		const base = lineText.slice(nameStart, j);
+		const trailing = lineText[j] == "?" && !/^\?[.?[]/.test(lineText.slice(j));
+		if (trailing)
+		{
+			++j;
+		}
+		members.push({ text: lineText.slice(from, j), base, nullable: leading || trailing });
+		end = j;
+		while (j < lineText.length && /\s/.test(lineText[j]))
+		{
+			++j;
+		}
+		pos = j;
+	}
+	return members.length > 1 ? { start, end, members } : null;
+}
+
+/**
+ * Hover text for a union type: what it can hold, with `nil` made explicit.
+ * @param {{ members: { text: string, base: string, nullable: boolean }[] }} union
+ * @returns {{ title: string, text: string }}
+ */
+function describeUnion(union)
+{
+	const bases = [];
+	let hasNil = false;
+	for (const m of union.members)
+	{
+		if (m.base == "nil")
+		{
+			hasNil = true;
+			continue;
+		}
+		hasNil = hasNil || m.nullable;
+		if (!bases.includes(m.base))
+		{
+			bases.push(m.base);
+		}
+	}
+	let text = t("union.text") + "\n\n" + bases.concat(hasNil ? ["nil"] : []).map(b => "- `" + b + "`").join("\n");
+	if (hasNil && bases.length == 1)
+	{
+		text += "\n\n" + t("union.sameAs", bases[0]);
+	}
+	return { title: t(hasNil ? "union.labelNil" : "union.label") + " " + union.members.map(m => m.text).join(" | "), text };
+}
+
 const isP = (tokens, idx, v) => tokens[idx] !== undefined && tokens[idx].t == "p" && tokens[idx].v == v;
 const isId = (tokens, idx) => tokens[idx] !== undefined && tokens[idx].t == "id";
 
@@ -194,4 +327,4 @@ function findNullableTypes(text)
 	return out;
 }
 
-module.exports = { isTypeHintPosition, isNullableType, describeNullable, findNullableTypes };
+module.exports = { isTypeHintPosition, isNullableType, describeNullable, findNullableTypes, unionAt, describeUnion };

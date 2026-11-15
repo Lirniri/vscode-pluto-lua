@@ -390,6 +390,215 @@ async function main()
     checkScope("obj:method(1)", "method", "meta.method-call.pluto", true);
     checkScope("x = a ? b : c", "c", "storage.type.primitive.pluto", false);
 
+    // Lambdas with typed parameters and a return type, as in `function f(a: int): int`.
+    {
+        const code = "local f = |x: int, y: ?string| -> bool? { return true }";
+        checkScope(code, "x", "variable.parameter.function.pluto", true);
+        checkScope(code, "y", "variable.parameter.function.pluto", true);
+        checkScope(code, "int", "meta.typehint.pluto", true);
+        checkScope(code, "int", "storage.type.primitive.pluto", true);
+        checkScope(code, "?string", "storage.type.primitive.pluto", true);
+        checkScope(code, "bool?", "meta.return-type.pluto", true);
+        checkScope(code, "bool?", "storage.type.primitive.pluto", true);
+        checkScope(code, "f", "entity.name.function.arrow.pluto", true);
+        checkScope(code, "->", "storage.type.function.arrow.pluto", true);
+        // Parameter types are not return types.
+        checkScope(code, "int", "meta.return-type.pluto", false);
+        // Lambdas without types keep working; an expression body is not a return type.
+        checkScope("local g = |a, b| -> a + b", "a", "variable.parameter.function.pluto", true);
+        checkScope("local g = |a| -> a", "g", "entity.name.function.arrow.pluto", true);
+        checkScope("local g = |a| -> int", "int", "meta.return-type.pluto", false);
+        // A bitwise or is not a lambda.
+        checkScope("local x = b | c", "b", "variable.parameter.function.pluto", false);
+        checkScope("local x = b | c", "|", "keyword.operator.logical.pluto", true);
+        // Long lines must stay fast.
+        const started = Date.now();
+        grammar.tokenizeLine("local x = |" + "aaaa, ".repeat(3000) + "bbbb", vsctm.INITIAL);
+        grammar.tokenizeLine("local x = |" + "aaaa: int, ".repeat(3000) + "|", vsctm.INITIAL);
+        if (Date.now() - started > 2000)
+        {
+            console.log("Lambda rule is too slow on long lines: " + (Date.now() - started) + " ms");
+            ok = false;
+        }
+    }
+
+    // Function names with several segments: parameters and types are highlighted as in `function a.b(...)`.
+    for (const code of [
+        "function api.add(a: int, b: int): int",
+        "function api.handlers.add(a: int, b: int): int",
+        "function api.a.b.c.add(a: int, b: int): int",
+        "function api.h:add(a: int, b: int): int",
+        "function Atdar.natives.entity.get_height_above_ground(a: int, b: int): int",
+    ])
+    {
+        checkScope(code, "add", "entity.name.function.pluto", !code.includes("Atdar"));
+        checkScope(code, "a", "variable.parameter.function.pluto", true);
+        checkScope(code, "a", "meta.function.pluto", true);
+        checkScope(code, "a", "meta.function.incomplete.pluto", false);
+    }
+    checkScope("function Atdar.natives.entity.get_height_above_ground(a: int)", "get_height_above_ground", "entity.name.function.pluto", true);
+    checkScope("function Atdar.natives.entity.get_height_above_ground(a: int)", "int", "storage.type.primitive.pluto", true);
+
+    // User colors: the rules of src/highlightColors.js must really win in a TextMate theme, including the
+    // depth of table braces chosen by descendant selectors.
+    {
+        const { buildRules } = require("./src/highlightColors");
+        const rules = buildRules(
+            { functionName: "#aa0001 bold", parameter: "#aa0002 italic", type: "#aa0003", keyword: "#aa0004", returnType: { color: "#aa0005", fontStyle: "bold" } },
+            ["#110001", "#110002", "#110003"]);
+        const themed = new vsctm.Registry({
+            onigLib: Promise.resolve({ createOnigScanner: (s) => new onig.OnigScanner(s), createOnigString: (s) => new onig.OnigString(s) }),
+            theme: { name: "test", settings: [{ settings: { foreground: "#999999" } }].concat(rules.map(r => ({ name: r.name, scope: r.scope, settings: r.settings }))) },
+            loadGrammar: async (scopeName) => scopeName == "source.pluto"
+                ? vsctm.parseRawGrammar(fs.readFileSync(path.join(__dirname, "Pluto.tmbundle", "Syntaxes", "Pluto.tmLanguage"), "utf8"))
+                : null,
+        });
+        const themedGrammar = await themed.loadGrammar("source.pluto");
+        const colorMap = themed.getColorMap();
+        const colorsOf = function (lines)
+        {
+            let stack = vsctm.INITIAL;
+            const out = [];
+            for (const line of lines)
+            {
+                const r = themedGrammar.tokenizeLine2(line, stack);
+                stack = r.ruleStack;
+                for (let i = 0; i < r.tokens.length; i += 2)
+                {
+                    const start = r.tokens[i];
+                    const end = i + 2 < r.tokens.length ? r.tokens[i + 2] : line.length;
+                    const meta = r.tokens[i + 1];
+                    out.push({ text: line.slice(start, end), color: String(colorMap[(meta & 0x00FF8000) >>> 15]).toLowerCase(), bold: !!(meta & 0x1000), italic: !!(meta & 0x800) });
+                }
+            }
+            return out;
+        };
+        const expectColor = function (tokens, text, nth, color, what)
+        {
+            const found = tokens.filter(t => t.text == text)[nth];
+            if (!found || found.color != color)
+            {
+                console.log(`Theme mismatch: ${what}: "${text}" #${nth} is ${found ? found.color : "missing"}, expected ${color}`);
+                ok = false;
+            }
+            return found;
+        };
+        const braces = colorsOf(["local t = { { { { { } } } } }"]);
+        // Opening braces: depths 1..5 use the palette in turn (110001, 110002, 110003, 110001, 110002) ...
+        ["#110001", "#110002", "#110003", "#110001", "#110002"].forEach((c, i) => expectColor(braces, "{", i, c, "table depth " + (i + 1)));
+        // ... and each closing brace has the color of its opening one.
+        ["#110002", "#110001", "#110003", "#110002", "#110001"].forEach((c, i) => expectColor(braces, "}", i, c, "closing brace " + (i + 1)));
+        const fn = colorsOf(["function api.handlers.add(a: int, b: int): int"]);
+        expectColor(fn, "add", 0, "#aa0001", "function name");
+        expectColor(fn, "a", 0, "#aa0002", "parameter");
+        expectColor(fn, "int", 0, "#aa0003", "type");
+        expectColor(fn, "(", 0, "#999999", "punctuation without a rule keeps the theme color");
+        if (!(expectColor(fn, "add", 0, "#aa0001", "bold").bold))
+        {
+            console.log("Theme mismatch: function name should be bold");
+            ok = false;
+        }
+        // The return type has its own color; the types inside the parameters keep the color of `type`.
+        const ret = colorsOf(["function f(a: int, b: string?): void", "function g(a: bool): bool?", "local x: int = 1"]);
+        expectColor(ret, "int", 0, "#aa0003", "type of a parameter");
+        expectColor(ret, "string?", 0, "#aa0003", "nullable type of a parameter");
+        expectColor(ret, "void", 0, "#aa0005", "return type");
+        expectColor(ret, "bool", 0, "#aa0003", "type of a parameter (bool)");
+        expectColor(ret, "bool?", 0, "#aa0005", "nullable return type");
+        expectColor(ret, "int", 1, "#aa0003", "type of a local variable");
+        if (!ret.find(t => t.text == "void").bold)
+        {
+            console.log("Theme mismatch: return type should be bold (object form of the style)");
+            ok = false;
+        }
+        // A lambda's return type takes the color of `returnType`, the types of its parameters that of `type`.
+        const lam = colorsOf(["local f = |x: int| -> bool { return true }"]);
+        expectColor(lam, "int", 0, "#aa0003", "type of a lambda parameter");
+        expectColor(lam, "bool", 0, "#aa0005", "return type of a lambda");
+        expectColor(lam, "x", 0, "#aa0002", "lambda parameter");
+        const kw = colorsOf(["if x then return 1 end"]);
+        expectColor(kw, "return", 0, "#aa0004", "keyword");
+    }
+
+    // Deeply nested table constructors across lines: the state is carried from line to line, every
+    // `{` gets the scope depth of its level, and after the last `}` we are back at the root.
+    const checkNesting = function (name, lines, expectedMaxDepth)
+    {
+        let stack = vsctm.INITIAL;
+        let depth = 0;
+        let maxDepth = 0;
+        const problems = [];
+        lines.forEach(function (line, n)
+        {
+            const result = grammar.tokenizeLine(line, stack);
+            stack = result.ruleStack;
+            for (const token of result.tokens)
+            {
+                const text = line.slice(token.startIndex, token.endIndex);
+                const level = token.scopes.filter(s => s == "meta.table.pluto").length;
+                const last = token.scopes[token.scopes.length - 1];
+                if (last == "punctuation.section.table.begin.pluto")
+                {
+                    ++depth;
+                    maxDepth = Math.max(maxDepth, depth);
+                    if (level != depth)
+                    {
+                        problems.push(`line ${n + 1}: "{" at col ${token.startIndex} has table depth ${level}, expected ${depth}`);
+                    }
+                }
+                else if (last == "punctuation.section.table.end.pluto")
+                {
+                    if (level != depth)
+                    {
+                        problems.push(`line ${n + 1}: "}" at col ${token.startIndex} has table depth ${level}, expected ${depth}`);
+                    }
+                    --depth;
+                }
+                else if (text.trim() && level != depth)
+                {
+                    problems.push(`line ${n + 1}: "${text}" has table depth ${level}, expected ${depth}`);
+                }
+            }
+        });
+        if (depth != 0)
+        {
+            problems.push(`unbalanced: ${depth} table(s) still open at the end`);
+        }
+        if (maxDepth != expectedMaxDepth)
+        {
+            problems.push(`max depth ${maxDepth}, expected ${expectedMaxDepth}`);
+        }
+        if (problems.length)
+        {
+            console.log(name + " MISMATCH");
+            console.log(problems.join("\n"));
+            ok = false;
+        }
+    };
+    checkNesting("nested tables: one line, 4 levels", [
+        `local t = { 1, 2, { 3, 4, { 5, { 6 } } } }`,
+        `print(t)`,
+    ], 4);
+    checkNesting("nested tables: 6 levels over many lines", [
+        `local config = {`,
+        `    name = "root",`,
+        `    deep = {`,
+        `        a = {`,
+        `            b = {`,
+        `                c = {`,
+        `                    d = { value = 42, text = "x" },`,
+        `                },`,
+        `            },`,
+        `        },`,
+        `    },`,
+        `    ["key with space"] = { [1] = { [2] = { [3] = true } } },`,
+        `    fn = function(x: int): int`,
+        `        return { inner = { x = x } }.inner.x`,
+        `    end,`,
+        `}`,
+        `print(config.deep.a.b.c.d.value)`,
+    ], 6);
+
     if (!ok)
     {
         process.exit(1);

@@ -6,7 +6,7 @@ const vscode = require("vscode");
 const fs = require("fs");
 const { formatFunctionSource } = require("./functionSource");
 const { collectReturnTags, describeReturnType } = require("./returnTags");
-const { isTypeHintPosition, isNullableType, describeNullable } = require("./typeHints");
+const { isTypeHintPosition, isNullableType, describeNullable, unionAt, describeUnion } = require("./typeHints");
 const builtins = require("./builtins");
 const { formatSignature, formatParams, computeFolding } = require("./parser");
 const { chainBefore, chainAt, requireAt, findCall, typeAnnotationAt, PRIMITIVE_TYPES, primitiveDoc } = require("./analysis");
@@ -764,6 +764,16 @@ const completionProvider = {
 					}
 				}
 				return undefined;
+			}
+			// On the `|` of `int|string`: what the whole union can hold.
+			const union = unionAt(lineText, position.character);
+			if (union)
+			{
+				const info = describeUnion(union);
+				const md = new vscode.MarkdownString();
+				md.appendCodeblock(info.title, "pluto");
+				md.appendMarkdown(info.text);
+				return new vscode.Hover(md, new vscode.Range(position.line, union.start, position.line, union.end));
 			}
 			const chain = typeHintChain(chainAt(lineText, position.character), lineText);
 			if (!chain)

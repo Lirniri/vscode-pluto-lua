@@ -1,0 +1,223 @@
+-- =====================================================================
+-- demo-highlight.pluto: every kind of token of the Pluto grammar in one place.
+-- Open it with your colors on and tune each category.
+-- =====================================================================
+
+-- 1. Comments ----------------------------------------------------------
+-- line comment
+--- documentation comment
+-- @param name string the name
+-- @return bool whether it worked
+-- @see other
+--[[ block
+    comment ]]
+--[==[ block comment
+    with levels ]==]
+
+-- 2. Numbers, strings, constants --------------------------------------
+local int_number = 42
+local hex_number = 0xFF
+local float_number = 3.14e-2
+local binary_number = 0b1010
+local single = 'single quoted'
+local double = "double quoted with \"escape\" \n \t \x41 \u{1F600}"
+local long = [[long
+string]]
+local long_level = [==[level two]==]
+local interpolated = $"Hello {int_number} and {double}"
+local truth, falsity, nothing = true, false, nil
+local varargs = select("#", ...)
+
+-- 3. Keywords and modifiers -------------------------------------------
+local a <const> = 1
+local b <close> = nil
+local g = 10
+
+if a == 1 then
+    print("one")
+elseif a == 2 then
+    print("two")
+else
+    print("many")
+end
+
+for i = 1, 10, 2 do
+    if i == 3 then continue end
+    if i > 7 then break end
+end
+
+for key, value in pairs({ x = 1, y = 2 }) do
+    print(key, value)
+end
+
+local n = 0
+while n < 3 do n = n + 1 end
+repeat n = n - 1 until n <= 0
+
+do
+    local scoped = true
+end
+
+goto done
+::done::
+
+-- 4. Operators ---------------------------------------------------------
+local math_ops = 1 + 2 - 3 * 4 / 5 // 6 % 7 ^ 2
+local bit_ops = 1 & 2 | 3 ~ 4 << 5 >> 6
+local compare = 1 == 2 or 3 ~= 4 and 5 <= 6 or 7 >= 8 or not (9 < 10)
+local concat = "a" .. "b" .. 1
+local length = #"text"
+local ternary = a ? "yes" : "no"
+local coalesce = nothing ?? "default"
+local safe = g?.field
+local safe_index = g?[1]
+local compound = 1
+compound += 1
+compound -= 1
+compound *= 2
+compound /= 2
+compound ..= "x"
+compound ??= 0
+
+$declare function tonumber(str: string, base: ?number): number
+
+local x = "hello"
+print($getproptype(x)) --> string
+
+$type Point = { x: number, y: number }
+
+local p: Point = { x = 1, y = 2 }
+
+-- 5. Functions, parameters and types ---------------------------------
+local function plain(a, b) return a + b end
+
+function typed(count: int, name: string, ratio: float, ok: bool): string
+    return name
+end
+
+function nullable(a: int?, b: ?string, c: Vehicle?): bool? return nil end
+function unions(a: int|string, b: ?int|string?, c: number|nil|bool): void end
+function tables_as_types(point: { x: number, y: number }, list: { int }): table return {} end
+function with_default(a: int = 5, b: string = "x", ...) end
+function variadic(...args: any) return ... end
+
+local lambda = |x, y| -> x + y
+local typed_lambda = |x: int, y: int| -> int { return x + y }
+local arrow = function(x) return x * 2 end
+
+function api_add(a: int, b: int): int return a + b end
+function api.add(a: int, b: int): int return a + b end
+function api.handlers.add(a: int, b: int): int return a + b end
+function api.deep.path.add(a: int, b: int): int return a + b end
+function api.handlers:method(a: int): int return a end
+local api = { handlers = {}, deep = { path = {} } }
+
+-- 6. Tables, nested ----------------------------------------------------
+local config = {
+    name = "root",
+    list = { 1, 2, { 3, 4, { 5, { 6 } } } },
+    deep = {
+        a = {
+            b = {
+                c = {
+                    d = { value = 42, text = "x" },
+                },
+            },
+        },
+    },
+    ["key with space"] = { [1] = { [2] = { [3] = true } } },
+    handlers = {
+        move = function(ped: int, pos: Vec3, speed: float?): bool
+            return true
+        end,
+        nested = {
+            call = function(a: int|string, b: ?string, c: { int }): table
+                return {}
+            end,
+        },
+    },
+}
+print(config.deep.a.b.c.d.value, config.list[3][3][2][1])
+
+-- 7. Classes, enums, switch -------------------------------------------
+class Entity
+    public id: int
+    protected hp: float = 100
+    private secret: string?
+    static count: int = 0
+
+    function __construct(id: int)
+        self.id = id
+    end
+
+    function damage(amount: float): void
+        self.hp -= amount
+    end
+
+    static function make(id: int): Entity
+        return new Entity(id)
+    end
+end
+
+class Human extends Entity
+    function __construct(id: int, name: string)
+        parent.__construct(self, id)
+        self.name = name
+    end
+
+    function greet(): string
+        return "Hi, " .. self.name
+    end
+end
+
+local human = new Human(1, "John")
+print(human:greet(), human.name, Human.count)
+
+enum Color begin
+    Red,
+    Green = 5,
+    Blue
+end
+enum class Direction begin North, South end
+
+switch human.id do
+    case 1:
+        print("one")
+        break
+    case 2, 3:
+        print("two or three")
+        break
+    default:
+        print("other")
+end
+
+-- 8. Types, aliases, built-ins and libraries ----------------------------
+$type StringOrNumber = string|number
+$type Point = { x: number, y: number }
+$type Callback = function(a: string): int
+$declare external: function(a: string): int
+$alias trace(x) = print(x)
+
+local math_value = math.floor(3.7) + math.max(1, 2)
+local text = string.format("%d", 5):upper()
+local parsed = tonumber("12") or tostring(12)
+local list = table.concat({ 1, 2, 3 }, ",")
+local vec = require "pluto:vector3"
+local v = new vec(1, 2, 3)
+pcall(function() error("boom") end)
+print(os.time(), io.write, utf8.char(65), coroutine.create(print))
+setmetatable({}, { __index = function(t, k) return k end })
+
+-- 9. Self, parent, method calls, accessors -----------------------------
+local result = human:greet():upper():lower()
+local chained = config.deep.a.b.c.d.value
+local indexed = config["deep"]["a"]
+local call_with_table = print { 1, 2, 3 }
+local call_with_string = print "text"
+
+global late_global = 1 -- `global` makes later undeclared names an error, so it stays at the end
+
+-- 10. Deliberately wrong code (red is expected below; keep it at the end of the file,
+--     an unclosed string turns every line after it red) ---------------------
+local end = 1
+local broken = "this string is never closed

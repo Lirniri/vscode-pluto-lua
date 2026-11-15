@@ -1619,11 +1619,11 @@ testAsync("i18n: hovers, completion and diagnostics speak the chosen language", 
 		const plain = hover("function f(ped: in|t) end");
 		assert(plain.includes("(тип) int") && plain.includes("Целое число"), plain);
 		const nullable = hover("function f(ped: in|t?) end");
-		assert(nullable.includes("(nullable-тип) int?") && nullable.includes("Может быть `int` или `nil`"), nullable);
+		assert(nullable.includes("(допускающий nil) int?") && nullable.includes("Может быть `int` или `nil`"), nullable);
 		assert(hover("local s = str|ing.format(\"\")").includes("(библиотека) string"));
 		// completion of types
 		const list = complete("function f(a: |");
-		assert.strictEqual(list.get("int?").detail, "(nullable-тип) int?");
+		assert.strictEqual(list.get("int?").detail, "(допускающий nil) int?");
 		assert.strictEqual(list.get("bool").detail, "(тип) bool");
 		assert(list.get("bool").documentation.value.includes("Логический тип"));
 	});
@@ -2241,3 +2241,152 @@ testAsync("service: ignore files and settings control what is indexed", async fu
 		process.exit(1);
 	}
 })();
+
+test("union types: hover on the | of a type hint", function ()
+{
+	const { unionAt, describeUnion } = require("../src/typeHints");
+	const line = "function f(value: int|string) end";
+	const u = unionAt(line, line.indexOf("|"));
+	assert.deepStrictEqual(u.members.map(m => m.text), ["int", "string"]);
+	assert.strictEqual(line.slice(u.start, u.end), "int|string");
+	const d = describeUnion(u);
+	assert.strictEqual(d.title, "(union type) int | string");
+	assert(d.text.includes("- `int`") && d.text.includes("- `string`") && !d.text.includes("nil"), d.text);
+	// `?` adds nil, whichever side it is written on.
+	const q = "function f(v: ?int | string?) end";
+	const dq = describeUnion(unionAt(q, q.indexOf("|")));
+	assert.strictEqual(dq.title, "(union type that allows nil) ?int | string?");
+	assert(dq.text.includes("- `nil`"), dq.text);
+	// An explicit nil is the same as `?`.
+	const n = "local x: int|nil = 1";
+	const dn = describeUnion(unionAt(n, n.indexOf("|")));
+	assert(dn.text.includes("- `nil`") && dn.text.includes("Same as `int?`"), dn.text);
+	// Three members; any `|` of the union works.
+	const three = "function f(a: int|string|bool) end";
+	assert.strictEqual(unionAt(three, three.lastIndexOf("|")).members.length, 3);
+	// Not type hints: lambda, bitwise or.
+	assert.strictEqual(unionAt("local f = |a, b| a + b", 15), null);
+	assert.strictEqual(unionAt("local x = a|b", 11), null);
+	// The provider returns it with the range of the whole union; the russian text is localized.
+	const doc = vscode.createDocument("/ws/main.pluto", line);
+	const h = providers.hoverProvider.provideHover(doc, new vscode.Position(0, line.indexOf("|")));
+	assert(h.contents[0].value.includes("(union type) int | string"), h.contents[0].value);
+	assert.strictEqual(h.range.start.character, u.start);
+	assert.strictEqual(h.range.end.character, u.end);
+	const i18n = require("../src/i18n");
+	i18n.setLanguage("ru");
+	try
+	{
+		assert.strictEqual(describeUnion(u).title, "(объединение типов) int | string");
+		assert.strictEqual(describeUnion(unionAt(n, n.indexOf("|"))).title, "(объединение, допускающее nil) int | nil");
+		assert(require("../src/typeHints").describeNullable("int?").title.startsWith("(допускающий nil)"));
+	}
+	finally
+	{
+		i18n.setLanguage("en");
+	}
+});
+
+test("highlight colors: styles are parsed and the rules of the user are kept", function ()
+{
+	const { parseStyle, buildRules, mergeRules, RULE_PREFIX } = require("../src/highlightColors");
+	assert.deepStrictEqual(parseStyle("#FFAA00"), { foreground: "#FFAA00" });
+	assert.deepStrictEqual(parseStyle("#fa0 bold italic"), { foreground: "#fa0", fontStyle: "bold italic" });
+	assert.deepStrictEqual(parseStyle("bold"), { fontStyle: "bold" });
+	assert.deepStrictEqual(parseStyle("#fff normal"), { foreground: "#fff", fontStyle: "" });
+	// Typos and other values give nothing instead of a wrong color.
+	for (const bad of ["red", "#12", "#ggg", "#fff bolt", "", 5, null, undefined, {}])
+	{
+		assert.strictEqual(parseStyle(bad), null, String(bad));
+	}
+	assert.deepStrictEqual(buildRules(undefined, undefined), []);
+	assert.deepStrictEqual(buildRules({}, []), []);
+	const rules = buildRules({ functionName: "#111111", parameter: "oops", unknownKey: "#222222" }, ["#333333", "bad", "#444444"]);
+	assert.strictEqual(rules.filter(r => r.name == RULE_PREFIX + "functionName").length, 1);
+	assert(!rules.some(r => r.name == RULE_PREFIX + "parameter"), "an invalid style is skipped");
+	assert(!rules.some(r => r.name.includes("unknownKey")));
+	const braces = rules.filter(r => r.name.startsWith(RULE_PREFIX + "tableBracket "));
+	assert.strictEqual(braces.length, 8);
+	assert.strictEqual(braces[0].settings.foreground, "#333333");
+	assert.strictEqual(braces[1].settings.foreground, "#444444");
+	assert.strictEqual(braces[2].settings.foreground, "#333333", "the palette repeats");
+	assert.deepStrictEqual(braces[1].scope, ["meta.table.pluto meta.table.pluto punctuation.section.table.begin.pluto", "meta.table.pluto meta.table.pluto punctuation.section.table.end.pluto"]);
+	// Merging: own rules stay, old managed rules are replaced, and nothing is left when turned off.
+	const own = [{ scope: "comment", settings: { foreground: "#00ff00" } }, { name: "mine", scope: "string", settings: { foreground: "#ff0000" } }];
+	const merged = mergeRules(own.concat([{ name: RULE_PREFIX + "old", scope: "x", settings: {} }]), rules);
+	assert.deepStrictEqual(merged.slice(0, 2), own);
+	assert(!merged.some(r => r.name == RULE_PREFIX + "old"));
+	assert.strictEqual(merged.length, 2 + rules.length);
+	assert.deepStrictEqual(mergeRules(merged, []), own);
+	assert.deepStrictEqual(mergeRules(undefined, []), []);
+});
+
+test("highlight colors: the object form { color, fontStyle } and the return type category", function ()
+{
+	const { parseStyle, buildRules, CATEGORIES } = require("../src/highlightColors");
+	assert.deepStrictEqual(parseStyle({ color: "#FF8800", fontStyle: "bold italic" }), { foreground: "#FF8800", fontStyle: "bold italic" });
+	assert.deepStrictEqual(parseStyle({ color: "#FF8800" }), { foreground: "#FF8800" });
+	assert.deepStrictEqual(parseStyle({ fontStyle: "bold" }), { fontStyle: "bold" });
+	assert.strictEqual(parseStyle({}), null);
+	assert.strictEqual(parseStyle({ color: "orange" }), null);
+	assert.strictEqual(parseStyle([]), null);
+	// A table bracket palette accepts both forms.
+	const rules = buildRules({ returnType: { color: "#112233", fontStyle: "bold" } }, [{ color: "#445566" }, "#778899 italic"]);
+	const ret = rules.find(r => r.name == "Pluto: returnType");
+	assert.deepStrictEqual(ret.scope, ["meta.return-type.pluto storage.type.primitive.pluto"]);
+	assert.strictEqual(rules.find(r => r.name == "Pluto: tableBracket 1").settings.foreground, "#445566");
+	assert.strictEqual(rules.find(r => r.name == "Pluto: tableBracket 2").settings.fontStyle, "italic");
+	// Every category of the code is in the settings schema, with a text in both languages.
+	const pkg = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "package.json"), "utf8"));
+	const schema = pkg.contributes.configuration.properties["pluto.highlight.colors"].properties;
+	assert.deepStrictEqual(Object.keys(schema).sort(), Object.keys(CATEGORIES).sort());
+	for (const prop of Object.values(schema))
+	{
+		assert.strictEqual(prop.properties.color.format, "color-hex", "the color gets a picker");
+	}
+});
+
+test("highlight colors: wrong values are reported and never applied", function ()
+{
+	const { checkStyle, isInvisibleColor, findProblems, buildRules } = require("../src/highlightColors");
+	// Fully transparent colors would make the text invisible.
+	for (const color of ["#0000", "#00000000", "#ABC0", "#ff880000"])
+	{
+		assert(isInvisibleColor(color), color);
+		assert.strictEqual(checkStyle(color).problem, "transparent", color);
+		assert.strictEqual(checkStyle(color).settings, null);
+		assert.strictEqual(checkStyle({ color, fontStyle: "bold" }).problem, "transparent");
+	}
+	for (const color of ["#000", "#000F", "#00000001", "#ff8800", "#00f7ff7a", "#ffff"])
+	{
+		assert(!isInvisibleColor(color), color);
+		assert.strictEqual(checkStyle(color).problem, undefined, color);
+	}
+	// Typos and wrong types are reported, an empty value is simply "not set".
+	assert.strictEqual(checkStyle("orange").problem, "invalid");
+	assert.strictEqual(checkStyle("#12").problem, "invalid");
+	assert.strictEqual(checkStyle("#fff bolt").problem, "invalid");
+	assert.strictEqual(checkStyle(5).problem, "invalid");
+	assert.strictEqual(checkStyle(true).problem, "invalid");
+	assert.deepStrictEqual(checkStyle(""), { settings: null });
+	assert.deepStrictEqual(checkStyle(undefined), { settings: null });
+	assert.deepStrictEqual(checkStyle({}), { settings: null });
+	assert.deepStrictEqual(checkStyle("#fff bold"), { settings: { foreground: "#fff", fontStyle: "bold" } });
+	// The list of problems of the settings.
+	assert.deepStrictEqual(findProblems(undefined, undefined), []);
+	assert.deepStrictEqual(findProblems({ functionName: "", type: "#112233" }, []), []);
+	const problems = findProblems(
+		{ functionName: "#0000", parameter: "blue", functonKeyword: "#112233", type: "#112233", returnType: { color: "#00000000" } },
+		["#445566", "nope", "#0000"]);
+	assert.deepStrictEqual(problems.map(p => [p.name, p.problem]), [
+		["colors.functionName", "transparent"],
+		["colors.parameter", "invalid"],
+		["functonKeyword", "unknownKey"],
+		["colors.returnType", "transparent"],
+		["tableBracketColors[1]", "invalid"],
+		["tableBracketColors[2]", "transparent"],
+	]);
+	// Nothing wrong is turned into a rule: the color of the theme stays.
+	const rules = buildRules({ functionName: "#0000", parameter: "blue", type: "#112233" }, ["#0000"]);
+	assert.deepStrictEqual(rules.map(r => r.name), ["Pluto: type"]);
+});

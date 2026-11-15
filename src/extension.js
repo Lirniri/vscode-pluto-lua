@@ -13,6 +13,7 @@ const { createProviders, lineContext, SHOW_DECLARATIONS_COMMAND, PEEK_CODE_COMMA
 const { WorkspaceFilter } = require("./workspaceFilter");
 const { registerDiagnostics } = require("./diagnostics");
 const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEditor");
+const { buildRules, mergeRules, findProblems, CATEGORIES } = require("./highlightColors");
 const { t, resolveLanguage, setLanguage } = require("./i18n");
 
 const PLUTO_SELECTOR = [{ language: "pluto" }];
@@ -506,6 +507,67 @@ function registerCommands(context, service)
 	}));
 }
 
+let reportedColorProblems = "";
+
+/** Tells about wrong values in the color settings, once for each distinct set of mistakes. */
+function reportColorProblems(problems)
+{
+	const key = JSON.stringify(problems);
+	if (key == reportedColorProblems)
+	{
+		return;
+	}
+	reportedColorProblems = key;
+	if (!problems.length)
+	{
+		return;
+	}
+	const lines = problems.map(p => p.problem == "unknownKey"
+		? t("colors.problem.unknownKey", p.name, p.value, Object.keys(CATEGORIES).join(", "))
+		: t("colors.problem." + p.problem, "pluto.highlight." + p.name, p.value));
+	vscode.window.showWarningMessage(lines.join("\n"), t("colors.openSettings")).then(function (choice)
+	{
+		if (choice)
+		{
+			vscode.commands.executeCommand("workbench.action.openSettingsJson");
+		}
+	});
+}
+
+/**
+ * Keeps the colors set in `pluto.highlight.colors` / `pluto.highlight.tableBracketColors` in
+ * `editor.tokenColorCustomizations`, as rules named "Pluto: ..." next to the user's own rules.
+ * With `pluto.highlight.applyColors` off they are removed again.
+ */
+async function applyHighlightColors()
+{
+	const config = vscode.workspace.getConfiguration("pluto");
+	const enabled = config.get("highlight.applyColors", false) === true;
+	const rules = enabled
+		? buildRules(config.get("highlight.colors"), config.get("highlight.tableBracketColors"))
+		: [];
+	// A wrong value is never applied (the color of the theme stays); the user is told about it.
+	reportColorProblems(enabled ? findProblems(config.get("highlight.colors"), config.get("highlight.tableBracketColors")) : []);
+	const editorConfig = vscode.workspace.getConfiguration();
+	const inspected = editorConfig.inspect("editor.tokenColorCustomizations");
+	const current = (inspected && inspected.globalValue) || {};
+	const merged = mergeRules(current.textMateRules, rules);
+	if (JSON.stringify(merged) == JSON.stringify(Array.isArray(current.textMateRules) ? current.textMateRules : []))
+	{
+		return;
+	}
+	const next = Object.assign({}, current);
+	if (merged.length)
+	{
+		next.textMateRules = merged;
+	}
+	else
+	{
+		delete next.textMateRules;
+	}
+	await editorConfig.update("editor.tokenColorCustomizations", Object.keys(next).length ? next : undefined, vscode.ConfigurationTarget.Global);
+}
+
 /**
  * Registers the document-bound language providers for Pluto, and for Lua while `pluto.lua.enable`
  * is on. `refresh()` re-registers them after the setting changed.
@@ -585,6 +647,14 @@ function activate(context)
 	registerAutoClose(context, service);
 	registerTypeAutoTrigger(context);
 	registerNullableHighlight(context);
+	applyHighlightColors().catch(() => { });
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(function (event)
+	{
+		if (event.affectsConfiguration("pluto.highlight"))
+		{
+			applyHighlightColors().catch(() => { });
+		}
+	}));
 
 	// Keep the index in sync with editors and the file system.
 	context.subscriptions.push(
