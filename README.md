@@ -1,6 +1,6 @@
 <p align="center"><img src="readme-logo.png" alt="Pluto → Lua" width="400"></p>
 
-# Pluto Syntax Highlighting
+# Pluto & Lua Mini-IDE
 
 For information regarding the installation, features, & usage of this editor integration, [have a look at our documentation](https://plutolang.github.io/docs/Editor%20Integration).
 
