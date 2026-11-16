@@ -37,7 +37,7 @@ function registerMultilineFormat(context, service)
 		{
 			return;
 		}
-		const config = vscode.workspace.getConfiguration("pluto", document.uri);
+		const config = vscode.workspace.getConfiguration("plua", document.uri);
 		const options = {
 			params: config.get("format.multilineParams", true) !== false,
 			tables: config.get("format.multilineTables", true) !== false,

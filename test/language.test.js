@@ -722,11 +722,323 @@ test("auto-close: which lines get an `end`", function ()
 		assert.strictEqual(closerFor(line), "end", line);
 	}
 	assert.strictEqual(closerFor("repeat"), "until ");
+	// In a Lua file the words and forms only Pluto has get no `end`; the common ones do.
+	for (const line of ["function foo()", "if x then", "for i = 1, 10 do", "while true do", "do", "local f = function(a)", "foo(function()"])
+	{
+		assert.strictEqual(closerFor(line, true), "end", "lua: " + line);
+	}
+	for (const line of ["class Foo", "switch x do", "try", "enum Color begin", "export class Foo", "static function create()", "scheduler:add(|| -> do", "if x do", "local c = class"])
+	{
+		assert.strictEqual(closerFor(line, true), null, "lua: " + line);
+	}
 	const expectNothing = ["", "local x = 1", "if x then return end", "else", "elseif y then", "case 1:", "default:", "catch e then",
 		"-- if x then", "print(\"if x then\")", "function foo() end", "$if DEBUG then", "local t = {", "x = y", "$declare function f(a: string): number"];
 	for (const line of expectNothing)
 	{
 		assert.strictEqual(closerFor(line), null, line);
+	}
+});
+
+test("inline suggestions: the half typed word is finished, not repeated", function ()
+{
+	const { inlineSuggestionsAt, partialWordAt, finishWord } = require("../src/autoFormat");
+	const options = { parens: true, keyAssign: true, blockWords: true, forHints: false, ifWord: "then" };
+	// what the provider shows for the text before the cursor `|`
+	const shown = function (marked)
+	{
+		const offset = marked.indexOf("|");
+		const text = marked.replace("|", "");
+		const partial = partialWordAt(text, offset);
+		const finishing = [];
+		for (const word of partial ? ["then", "do"] : [])
+		{
+			// after an `if` both words are right, whichever is preferred
+			for (const s of finishWord(inlineSuggestionsAt(partial.text, partial.offset, Object.assign({}, options, { ifWord: word })), partial.word))
+			{
+				if (!finishing.some((f) => f.insert == s.insert))
+				{
+					finishing.push(s);
+				}
+			}
+		}
+		return (finishing.length ? finishing : inlineSuggestionsAt(text, offset, options)).map(s => s.insert);
+	};
+	assert.deepStrictEqual(shown("if test_object th|"), ["en"]);
+	assert.deepStrictEqual(shown("if test_object t|"), ["hen"]);
+	assert.deepStrictEqual(shown("if test_object the|"), ["n"]);
+	assert.deepStrictEqual(shown("if test_object then|"), []);
+	assert.deepStrictEqual(shown("if test_object |"), ["then"]);
+	assert.deepStrictEqual(shown("if test_object|"), [" then"]);
+	assert.deepStrictEqual(shown("while running d|"), ["o"]);
+	assert.deepStrictEqual(shown("if test_object d|"), ["o"]);
+	assert.deepStrictEqual(shown("elseif test_object do|"), []);
+	assert.deepStrictEqual(shown("for k, v in pairs(t) do|"), []);
+	// a name of its own stays a name: the word is a part of the condition
+	assert.deepStrictEqual(shown("if t|"), [" then"]);
+	assert.deepStrictEqual(shown("if a and th|"), [" then"]);
+	assert.deepStrictEqual(shown("if a == t|"), [" then"]);
+	assert.deepStrictEqual(shown("if a == |"), []);
+	// a word that does not go on with any suggestion: as before, the condition is taken as it stands
+	assert.deepStrictEqual(shown("if test_object xyz|"), [" then"]);
+	// the words themselves
+	assert.deepStrictEqual(finishWord([{ insert: "then" }, { insert: " do" }, { insert: "()", snippet: "($0)" }], "th").map(s => s.insert), ["en"]);
+	assert.deepStrictEqual(finishWord([{ insert: "return", snippet: "return $1" }], "ret"), [{ insert: "urn", snippet: "urn $1" }]);
+	assert.strictEqual(partialWordAt("foo(th", 6), null);
+	assert.strictEqual(partialWordAt("if x th end", 7), null);
+});
+
+test("quick delete: two presses in a row on a lone `end` remove the line", function ()
+{
+	const { quickDeleteDecision } = require("../src/extension");
+	const WINDOW = 1500;
+	const here = (line, now) => ({ uri: "file:///a.pluto", line, now });
+	const first = (text, now) => quickDeleteDecision(text, null, here(5, now), WINDOW);
+	const armed = { uri: "file:///a.pluto", line: 5, at: 1000 };
+	// the first press: the plain key, remembered when the line is a lone `end`
+	assert.strictEqual(first("\tend", 1000).action, "arm");
+	assert.deepStrictEqual(first("\tend", 1000).pending, armed);
+	assert.strictEqual(first("end", 1000).action, "arm");
+	assert.strictEqual(first("\tend   ", 1000).action, "arm");
+	// any other line, or a part of the word without a press before it: nothing to remember
+	for (const text of ["\ten", "\tend x", "x = 1 end", "", "\tfoo()"])
+	{
+		const step = first(text, 1000);
+		assert.strictEqual(step.action, "plain", text);
+		assert.strictEqual(step.pending, null, text);
+	}
+	// the second press, right after: what is left of the line goes (a letter, two, or the indentation was deleted)
+	for (const text of ["\ten", "\te", "end", "\t", "\tend", "\tnd", "\td"])
+	{
+		const step = quickDeleteDecision(text, armed, here(5, 2500), WINDOW);
+		assert.strictEqual(step.action, "remove", JSON.stringify(text));
+		assert.strictEqual(step.pending, null);
+	}
+	// text that is not the rest of `end` is never removed
+	assert.strictEqual(quickDeleteDecision("\tnx", armed, here(5, 1100), WINDOW).action, "plain");
+	assert.strictEqual(quickDeleteDecision("\tfoo()", armed, here(5, 1100), WINDOW).action, "plain");
+	// too late, another line or another file: a new first press
+	assert.strictEqual(quickDeleteDecision("\ten", armed, here(5, 2501), WINDOW).action, "plain");
+	assert.strictEqual(quickDeleteDecision("\tend", armed, here(5, 2501), WINDOW).action, "arm");
+	assert.strictEqual(quickDeleteDecision("\tend", armed, here(6, 1100), WINDOW).action, "arm");
+	assert.strictEqual(quickDeleteDecision("\tend", armed, { uri: "file:///b.pluto", line: 5, now: 1100 }, WINDOW).action, "arm");
+	// the time is a parameter
+	assert.strictEqual(quickDeleteDecision("\ten", armed, here(5, 1200), 200).action, "remove");
+	assert.strictEqual(quickDeleteDecision("\ten", armed, here(5, 1201), 200).action, "plain");
+});
+
+test("heirs: the classes that extend a class, down the chain of `extends`", function ()
+{
+	const { WorkspaceIndex } = require("../src/workspaceIndex");
+	const { selectedName, outOfSight } = require("../src/heirsPeek");
+	const idx = new WorkspaceIndex();
+	idx.setFile("file:///a.pluto", "/a.pluto", ["class Entity", "end", "", "class Human extends Entity", "end", "class Cat extends Entity", "end"].join("\n"));
+	idx.setFile("file:///b.pluto", "/b.pluto", ["class Hero extends Human", "end", "class Other", "end", "class Boss extends mod.Hero", "end"].join("\n"));
+	const names = (name) => idx.subclasses(name).map(h => h.sym.name + ":" + h.depth);
+	assert.deepStrictEqual(names("Entity"), ["Human:1", "Cat:1", "Hero:2", "Boss:3"]);
+	assert.deepStrictEqual(names("Human"), ["Hero:1", "Boss:2"]);
+	assert.deepStrictEqual(names("Boss"), []);
+	assert.deepStrictEqual(names("Other"), []);
+	assert.deepStrictEqual(names("Nope"), []);
+	assert.strictEqual(idx.subclasses("Entity")[2].file.key, "file:///b.pluto", "the file of the heir is known");
+	assert.strictEqual(idx.subclasses("Entity")[0].sym.line, 3, "and the line of its declaration");
+	// a cycle is visited once
+	const loop = new WorkspaceIndex();
+	loop.setFile("file:///c.pluto", "/c.pluto", ["class A extends B", "end", "class B extends A", "end"].join("\n"));
+	assert.deepStrictEqual(loop.subclasses("A").map(h => h.sym.name), ["B", "A"]);
+	// the selection has to be the whole name
+	assert.strictEqual(selectedName("class Human extends Entity", 20, 26), "Entity");
+	assert.strictEqual(selectedName("class Human extends Entity", 6, 11), "Human");
+	assert.strictEqual(selectedName("class Human extends Entity", 20, 24), null, "a part of a name");
+	assert.strictEqual(selectedName("class Human extends Entity", 21, 26), null, "a part of a name");
+	assert.strictEqual(selectedName("class Human extends Entity", 6, 19), null, "more than a name");
+	assert.strictEqual(selectedName("local x = 1", 10, 11), null, "a number");
+	assert.strictEqual(selectedName("class Сущность", 6, 14), "Сущность");
+	// only what is out of sight is shown
+	const heirs = [{ key: "a", line: 3 }, { key: "a", line: 60 }, { key: "b", line: 3 }];
+	assert.deepStrictEqual(outOfSight(heirs, "a", [{ start: 0, end: 30 }]), [{ key: "a", line: 60 }, { key: "b", line: 3 }]);
+	assert.deepStrictEqual(outOfSight(heirs, "a", [{ start: 0, end: 100 }]), [{ key: "b", line: 3 }]);
+	assert.deepStrictEqual(outOfSight(heirs, "a", []), heirs);
+});
+
+test("rename class: the declaration and the `extends` of the direct heirs", function ()
+{
+	const { WorkspaceIndex } = require("../src/workspaceIndex");
+	const { renamePlaces, checkNewName } = require("../src/renameClass");
+	const idx = new WorkspaceIndex();
+	idx.setFile("file:///a.pluto", "/a.pluto", ["class Entity", "end", "", "class Human extends Entity", "end"].join("\n"));
+	idx.setFile("file:///b.pluto", "/b.pluto", ["class Hero extends Human", "end", "class Boss extends mod.Entity", "end", "local e = new Entity()"].join("\n"));
+	const places = renamePlaces(idx, "Entity");
+	// the declaration first, then the `extends` of the direct heirs; not the heirs of the heirs, not `new Entity`
+	assert.deepStrictEqual(places, [
+		{ key: "file:///a.pluto", line: 0, col: 6, endCol: 12, kind: "declaration" },
+		{ key: "file:///a.pluto", line: 3, col: 20, endCol: 26, kind: "extends" },
+		{ key: "file:///b.pluto", line: 2, col: 23, endCol: 29, kind: "extends" },
+	]);
+	// the ranges are exactly the name
+	const text = ["class Human extends Entity"].join("\n");
+	assert.strictEqual(text.slice(20, 26), "Entity");
+	assert.deepStrictEqual(renamePlaces(idx, "Human").map(p => p.kind + ":" + p.line), ["declaration:3", "extends:0"]);
+	assert.deepStrictEqual(renamePlaces(idx, "Hero").map(p => p.kind), ["declaration"]);
+	assert.deepStrictEqual(renamePlaces(idx, "Nope"), []);
+	// two classes with one name: both are declarations
+	const twin = new WorkspaceIndex();
+	twin.setFile("file:///x.pluto", "/x.pluto", "class Entity\nend\n");
+	twin.setFile("file:///y.pluto", "/y.pluto", "class Entity\nend\nclass Cat extends Entity\nend\n");
+	assert.deepStrictEqual(renamePlaces(twin, "Entity").map(p => p.kind + ":" + p.key.slice(-7)), ["declaration:x.pluto", "declaration:y.pluto", "extends:y.pluto"]);
+	// the new name
+	assert.strictEqual(checkNewName("Creature", "Entity"), null);
+	assert.strictEqual(checkNewName("Сущность", "Entity"), null);
+	assert.strictEqual(checkNewName("", "Entity"), "empty");
+	assert.strictEqual(checkNewName("1abc", "Entity"), "invalid");
+	assert.strictEqual(checkNewName("a b", "Entity"), "invalid");
+	assert.strictEqual(checkNewName("end", "Entity"), "reserved");
+	assert.strictEqual(checkNewName("Entity", "Entity"), "same");
+});
+
+test("shift delete: on an empty line the pieces come from the nearest line with text below", function ()
+{
+	const { pieceBelow } = require("../src/extension");
+	// the whole thing as a loop of presses: what each press takes, until the line is gone
+	const eat = function (lines, cursor, forward, presses = 30)
+	{
+		const doc = lines.slice();
+		const taken = [];
+		for (let press = 0; press < presses; ++press)
+		{
+			const r = pieceBelow((n) => doc[n], doc.length, cursor, forward);
+			if (!r)
+			{
+				break;
+			}
+			taken.push(doc[r.line].slice(r.from, r.to));
+			if (r.wholeLine)
+			{
+				doc.splice(r.line, 1);
+			}
+			else
+			{
+				doc[r.line] = doc[r.line].slice(0, r.from) + doc[r.line].slice(r.to);
+			}
+		}
+		return { taken, doc };
+	};
+	// `end` is a single piece, and the line goes with it
+	const end = eat(["if t then", "\t", "end", "foo()"], 1, false, 1);
+	assert.deepStrictEqual(end.taken, ["end"]);
+	assert.deepStrictEqual(end.doc, ["if t then", "\t", "foo()"]);
+	// the screenshot: the cursor on the empty line above the function header; `string` is the first piece
+	const header = eat(["", "function greet(): string", "\treturn 1", "end"], 0, false, 6);
+	assert.deepStrictEqual(header.taken, ["string", ": ", ")", "(", "greet", "function "]);
+	assert.strictEqual(header.doc[0], "", "the cursor line stays");
+	assert.strictEqual(header.doc[1], "\treturn 1", "the line with nothing left is gone, the next one is untouched until its turn");
+	// Delete takes from the start
+	const forward = eat(["", "function greet(): string"], 0, true);
+	assert.deepStrictEqual(forward.taken, ["function", " greet", "(", ")", ":", " string"]);
+	assert.deepStrictEqual(forward.doc, [""]);
+	// the cursor line holds text, or there is no line with text below: nothing to take
+	assert.strictEqual(pieceBelow((n) => ["foo", "bar"][n], 2, 0, false), null);
+	assert.strictEqual(pieceBelow((n) => ["", "\t"][n], 2, 0, false), null);
+	assert.strictEqual(pieceBelow((n) => ["\t"][n], 1, 0, true), null);
+	// one press: the range and whether the line goes
+	assert.deepStrictEqual(pieceBelow((n) => ["", "\tend"][n], 2, 0, false), { line: 1, from: 1, to: 4, wholeLine: true });
+	assert.deepStrictEqual(pieceBelow((n) => ["", "\tself.name"][n], 2, 0, false), { line: 1, from: 6, to: 10, wholeLine: false });
+	assert.deepStrictEqual(pieceBelow((n) => ["\t", "", "  foo()"][n], 3, 0, true), { line: 2, from: 0, to: 5, wholeLine: false });
+	// the spaces and tabs at the edge of the line below go with the piece next to them, in the same press
+	assert.deepStrictEqual(pieceBelow((n) => ["", "\tend   "][n], 2, 0, false), { line: 1, from: 1, to: 7, wholeLine: true }, "trailing spaces with `end`, and the line is gone");
+	assert.deepStrictEqual(pieceBelow((n) => ["", "\tfoo(x)  "][n], 2, 0, false), { line: 1, from: 6, to: 9, wholeLine: false }, "spaces and the `)` before them");
+	assert.deepStrictEqual(pieceBelow((n) => ["", "\tfoo(x)"][n], 2, 0, true), { line: 1, from: 0, to: 4, wholeLine: false }, "the indentation and `foo`");
+	assert.deepStrictEqual(pieceBelow((n) => ["", "    end"][n], 2, 0, true), { line: 1, from: 0, to: 7, wholeLine: true }, "the indentation and `end`");
+	assert.strictEqual(pieceBelow((n) => ["", "   "][n], 2, 0, false), null, "an empty line is no line with text");
+});
+
+test("shift delete: a piece of the line per press", function ()
+{
+	const { pieceRange } = require("../src/extension");
+	// `self.name|`: `name`, then `.`, then `self`
+	const line = "return \"Hi, \" .. self.name";
+	let text = line;
+	let col = text.length;
+	const taken = [];
+	for (let n = 0; n < 3; ++n)
+	{
+		const r = pieceRange(text, col, false);
+		assert.ok(r);
+		taken.push(text.slice(r.from, r.to));
+		text = text.slice(0, r.from) + text.slice(r.to);
+		col = r.from;
+	}
+	assert.deepStrictEqual(taken, ["name", ".", "self"]);
+	assert.strictEqual(text, "return \"Hi, \" .. ");
+	// spaces and tabs are a piece of their own, an operator is one piece
+	assert.deepStrictEqual(pieceRange("return \"Hi, \" .. ", 17, false), { from: 16, to: 17 });
+	assert.deepStrictEqual(pieceRange("return \"Hi, \" .. ", 16, false), { from: 14, to: 16 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 8, false), { from: 7, to: 8 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 7, false), { from: 5, to: 7 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 5, false), { from: 3, to: 5 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 3, false), { from: 1, to: 3 });
+	assert.deepStrictEqual(pieceRange("foo    ", 7, false), { from: 3, to: 7 });
+	assert.deepStrictEqual(pieceRange("foo    ", 3, false), { from: 0, to: 3 });
+	assert.deepStrictEqual(pieceRange("foo \t ", 6, false), { from: 3, to: 6 }, "spaces and tabs are one run");
+	// a character outside of the BMP is never cut in halves
+	assert.deepStrictEqual(pieceRange("x = \"a\u{1F600}\"", 8, false), { from: 6, to: 8 });
+	assert.deepStrictEqual(pieceRange("say \u{1F600}", 6, false), { from: 4, to: 6 });
+	assert.deepStrictEqual(pieceRange("\u{1F600}\u{1F600}x", 0, true), { from: 0, to: 4 });
+	assert.deepStrictEqual(pieceRange("a\u{1F600}b", 3, false), { from: 1, to: 3 });
+	assert.deepStrictEqual(pieceRange("foo(bar)", 8, false), { from: 7, to: 8 });
+	assert.deepStrictEqual(pieceRange("foo(bar", 7, false), { from: 4, to: 7 });
+	assert.deepStrictEqual(pieceRange("x == y", 4, false), { from: 2, to: 4 });
+	assert.deepStrictEqual(pieceRange("local x_1 = 5", 13, false), { from: 12, to: 13 });
+	assert.deepStrictEqual(pieceRange("local x_1", 9, false), { from: 6, to: 9 });
+	assert.deepStrictEqual(pieceRange("имя.поле", 8, false), { from: 4, to: 8 });
+	// only indentation to the left: all of it; at the start of the line the plain key joins the lines
+	assert.deepStrictEqual(pieceRange("\t\tfoo", 2, false), { from: 0, to: 2 });
+	assert.strictEqual(pieceRange("\tfoo", 0, false), null);
+	assert.strictEqual(pieceRange("", 0, false), null);
+	// the cursor in the middle of a word takes the part in front of it
+	assert.deepStrictEqual(pieceRange("foobar", 3, false), { from: 0, to: 3 });
+	// Delete goes the other way
+	assert.deepStrictEqual(pieceRange("self.name", 0, true), { from: 0, to: 4 });
+	assert.deepStrictEqual(pieceRange("self.name", 4, true), { from: 4, to: 5 });
+	assert.deepStrictEqual(pieceRange("self.name", 5, true), { from: 5, to: 9 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 1, true), { from: 1, to: 3 });
+	assert.deepStrictEqual(pieceRange("a  ..  b", 3, true), { from: 3, to: 5 });
+	assert.deepStrictEqual(pieceRange("\tfoo", 0, true), { from: 0, to: 1 }, "the indentation is a piece of its own");
+	assert.deepStrictEqual(pieceRange("foo  ", 3, true), { from: 3, to: 5 });
+	assert.strictEqual(pieceRange("foo", 3, true), null, "at the end of the line the plain key joins the lines");
+});
+
+test("auto-close: an `end` is added only where the block of that line is unclosed", function ()
+{
+	const { needsEnd } = require("../src/extension");
+	// a class that has its `end` further down, in a file with an unclosed function elsewhere
+	const closedClass = parse(["function broken(a)", "", "class Entity", "    function f()", "    end", "end", ""].join("\n"));
+	assert.ok(closedClass.unclosed > 0);
+	assert.strictEqual(needsEnd(closedClass, 2), false);
+	// the same class without its `end`
+	const openClass = parse(["function broken(a)", "", "class Entity", "    function f()", "    end", ""].join("\n"));
+	assert.strictEqual(needsEnd(openClass, 2), true);
+	// a block typed in the middle of a function takes the function's `end`: it still needs its own
+	const middle = ["function a()", "    if x then", "    foo()", "end", ""];
+	assert.strictEqual(needsEnd(parse(middle.join("\n")), 1, (n) => middle[n]), true);
+	// the same block with its own `end` below
+	const done = ["function a()", "    if x then", "    foo()", "    end", "end", ""];
+	assert.strictEqual(needsEnd(parse(done.join("\n")), 1, (n) => done[n]), false);
+	// the class of the screenshot, with the text lines at hand
+	const cls = ["function broken(a)", "", "class Entity", "    function f()", "    end", "end", ""];
+	assert.strictEqual(needsEnd(parse(cls.join("\n")), 2, (n) => cls[n]), false);
+	// nothing unclosed at all
+	assert.strictEqual(needsEnd(parse("class A\nend\n"), 0), false);
+	// the line just typed: a lone opener at the end of the file
+	assert.strictEqual(needsEnd(parse("class A\n    \n"), 0), true);
+	// do / switch typed above a stray `end`: the file balances out, the block still has no `end` of its own
+	for (const head of ["do", "switch test do", "while x do"])
+	{
+		const stray = ["print(1)", "    " + head, "        ", "    print(2)", "end", ""];
+		const rec = parse(stray.join("\n"));
+		assert.strictEqual(rec.unclosed, 0);
+		assert.strictEqual(needsEnd(rec, 1, (n) => stray[n]), true);
+		const own = ["print(1)", "    " + head, "        ", "    end", ""];
+		assert.strictEqual(needsEnd(parse(own.join("\n")), 1, (n) => own[n]), false);
 	}
 });
 
@@ -1192,13 +1504,13 @@ test("hover: shows the source of a function below a separator", function ()
 		vscode.workspace.textDocuments.pop();
 	}
 	// Settings.
-	vscode.config["pluto.hover.maxBodyLines"] = 2;
-	vscode.config["pluto.hover.showFunctionBody"] = true;
+	vscode.config["plua.hover.maxBodyLines"] = 2;
+	vscode.config["plua.hover.showFunctionBody"] = true;
 	assert(hover("function a()\n    print(1)\n    print(2)\n    print(3)\nend\n|a()").includes("-- ... (+"));
-	vscode.config["pluto.hover.showFunctionBody"] = false;
+	vscode.config["plua.hover.showFunctionBody"] = false;
 	assert(!hover("function a()\n    print(1)\nend\n|a()").includes("\n\n---\n\n"));
-	delete vscode.config["pluto.hover.showFunctionBody"];
-	delete vscode.config["pluto.hover.maxBodyLines"];
+	delete vscode.config["plua.hover.showFunctionBody"];
+	delete vscode.config["plua.hover.maxBodyLines"];
 });
 
 testAsync("hover: same-named members are told apart by the path of the chain", async function ()
@@ -1255,11 +1567,11 @@ testAsync("hover: same-named members are told apart by the path of the chain", a
 		assert(parts.slice(0, -2).every(md => !md.isTrusted), "only the generated links may be trusted");
 
 		// The limit of the hover; the link still counts everything.
-		vscode.config["pluto.hover.maxDeclarations"] = 2;
+		vscode.config["plua.hover.maxDeclarations"] = 2;
 		const some = providers.hoverProvider.provideHover(document, position).contents;
 		assert.strictEqual(some.length, 4);
 		assert(some[3].value.includes("(5)"));
-		delete vscode.config["pluto.hover.maxDeclarations"];
+		delete vscode.config["plua.hover.maxDeclarations"];
 
 		// The command behind the link opens the references peek with all of them.
 		const args = JSON.parse(decodeURIComponent(/\?([^ )]+)/.exec(link.value)[1]));
@@ -1399,11 +1711,11 @@ test("type completion: built-in and nullable types, classes, Pluto files only", 
 	assert.deepStrictEqual(typed("switch x do\n    default: |", " "), []);
 	assert(!typed("local h = new Human(\"x\")\nh:|", ":").includes("int?"));
 	assert(typed("local h = new Human(\"x\")\nh:|", ":").includes("getName"));
-	vscode.config["pluto.completion.autoTriggerTypes"] = false;
+	vscode.config["plua.completion.autoTriggerTypes"] = false;
 	assert.deepStrictEqual(typed("function f(a: |", " "), []);
 	assert.deepStrictEqual(typed("function f(a:|", ":"), []);
 	assert(complete("function f(a: |").labels.includes("int?"), "Ctrl+Space still works");
-	delete vscode.config["pluto.completion.autoTriggerTypes"];
+	delete vscode.config["plua.completion.autoTriggerTypes"];
 
 	// Not in Lua files.
 	const lua = vscode.createDocument("/ws/x.lua", "local x: ", "lua");
@@ -1479,9 +1791,9 @@ test("type hints in the editor: the list opens by itself, nullable types are hig
 		vscode.window.activeTextEditor = makeEditor(doc, 0, 5);
 		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12)), false);
 		vscode.window.activeTextEditor = makeEditor(doc, 0, 13);
-		vscode.config["pluto.completion.autoTriggerTypes"] = false;
+		vscode.config["plua.completion.autoTriggerTypes"] = false;
 		assert.strictEqual(triggerTypeSuggest(change(doc, ":", 0, 12)), false);
-		delete vscode.config["pluto.completion.autoTriggerTypes"];
+		delete vscode.config["plua.completion.autoTriggerTypes"];
 		assert.strictEqual(commands.length, 2);
 
 		// Highlight: decoration with the configured colors, applied to Pluto editors only.
@@ -1497,10 +1809,10 @@ test("type hints in the editor: the list opens by itself, nullable types are hig
 		assert.deepStrictEqual(applied.map(a => a[0]), ["pluto"]);
 		assert.deepStrictEqual(applied[0][2].map(r => [r.start.line, r.start.character, r.end.character]), [[0, 14, 18], [0, 32, 36]]);
 		// New colors and switching off.
-		vscode.config["pluto.highlight.nullableTypeColor"] = "#EEEEEE";
+		vscode.config["plua.highlight.nullableTypeColor"] = "#EEEEEE";
 		highlighter.rebuild();
 		assert(types[0].disposed && types.length == 2 && types[1].options.dark.color == "#EEEEEE");
-		vscode.config["pluto.highlight.nullableTypes"] = false;
+		vscode.config["plua.highlight.nullableTypes"] = false;
 		highlighter.rebuild();
 		assert(types[1].disposed && highlighter.type === null);
 		const before = applied.length;
@@ -1514,8 +1826,8 @@ test("type hints in the editor: the list opens by itself, nullable types are hig
 		delete vscode.window.activeTextEditor;
 		delete vscode.window.createTextEditorDecorationType;
 		delete vscode.window.visibleTextEditors;
-		delete vscode.config["pluto.highlight.nullableTypeColor"];
-		delete vscode.config["pluto.highlight.nullableTypes"];
+		delete vscode.config["plua.highlight.nullableTypeColor"];
+		delete vscode.config["plua.highlight.nullableTypes"];
 	}
 });
 
@@ -1543,7 +1855,7 @@ test("i18n: the language is detected from the editor and can be fixed by hand", 
 	assert.strictEqual(resolveLanguage("ru", undefined), "ru");
 });
 
-test("i18n: applyLanguage reads pluto.language and vscode.env.language, and switches on the fly", function ()
+test("i18n: applyLanguage reads plua.language and vscode.env.language, and switches on the fly", function ()
 {
 	const { applyLanguage } = require("../src/extension");
 	try
@@ -1552,15 +1864,15 @@ test("i18n: applyLanguage reads pluto.language and vscode.env.language, and swit
 		assert.strictEqual(applyLanguage(), "ru");
 		assert.strictEqual(i18n.getLanguage(), "ru");
 		assert.strictEqual(i18n.t("hover.line", 7), "Строка 7");
-		vscode.config["pluto.language"] = "en"; // pinned by hand, as `onDidChangeConfiguration` would pick up
+		vscode.config["plua.language"] = "en"; // pinned by hand, as `onDidChangeConfiguration` would pick up
 		assert.strictEqual(applyLanguage(), "en");
 		assert.strictEqual(i18n.t("hover.line", 7), "Line 7");
 		vscode.env = { language: "en" };
-		vscode.config["pluto.language"] = "auto";
+		vscode.config["plua.language"] = "auto";
 		assert.strictEqual(applyLanguage(), "en");
-		vscode.config["pluto.language"] = "ru";
+		vscode.config["plua.language"] = "ru";
 		assert.strictEqual(applyLanguage(), "ru");
-		delete vscode.config["pluto.language"];
+		delete vscode.config["plua.language"];
 		vscode.env = { language: "de" };
 		assert.strictEqual(applyLanguage(), "en");
 		delete vscode.env; // a host without `env` is English
@@ -1569,7 +1881,7 @@ test("i18n: applyLanguage reads pluto.language and vscode.env.language, and swit
 	finally
 	{
 		delete vscode.env;
-		delete vscode.config["pluto.language"];
+		delete vscode.config["plua.language"];
 		i18n.setLanguage("en");
 	}
 });
@@ -1730,7 +2042,7 @@ test("package.nls: every %key% of package.json has an English and a Russian text
 	}
 
 	// the language setting
-	const language = pkg.contributes.configuration.properties["pluto.language"];
+	const language = pkg.contributes.configuration.properties["plua.language"];
 	assert.deepStrictEqual(language.enum, ["auto", "en", "ru"]);
 	assert.strictEqual(language.default, "auto");
 	assert.strictEqual(language.enumDescriptions.length, 3);
@@ -2027,7 +2339,7 @@ function testAsync(name, fn)
 	asyncTests.push({ name, fn });
 }
 
-testAsync("pluto.lua.enable: Lua support follows the setting without a reload", async function ()
+testAsync("plua.lua.enable: Lua support follows the setting without a reload", async function ()
 {
 	const { LanguageService, registerLanguageProviders, selectorFor } = require("../src/extension");
 	const { DiagnosticsManager } = require("../src/diagnostics");
@@ -2081,7 +2393,7 @@ testAsync("pluto.lua.enable: Lua support follows the setting without a reload", 
 		assert.deepStrictEqual(lp.workspaceSymbolProvider.provideWorkspaceSymbols("hello_lua").map(s => s.args[0]), ["M.hello_lua"]);
 
 		// Off: providers are re-registered for Pluto only, Lua diagnostics disappear, Pluto's stay.
-		vscode.config["pluto.lua.enable"] = false;
+		vscode.config["plua.lua.enable"] = false;
 		assert.strictEqual(svc.handles(luaDoc), false);
 		assert.strictEqual(svc.handles(plutoDoc), true);
 		controller.refresh();
@@ -2097,13 +2409,13 @@ testAsync("pluto.lua.enable: Lua support follows the setting without a reload", 
 		manager.schedule(luaDoc, true);
 		await new Promise(r => setTimeout(r, 20));
 		assert.deepStrictEqual(diagnosticsOf(luaDoc), [], "edits of Lua files are ignored");
-		// Lua files are still read for Pluto code (pluto.lua.indexFiles), but offer no features of their own.
+		// Lua files are still read for Pluto code (plua.lua.indexFiles), but offer no features of their own.
 		await svc.scan();
 		assert(svc.index.lookup("hello_lua").length == 1);
 		assert.deepStrictEqual(lp.workspaceSymbolProvider.provideWorkspaceSymbols("hello_lua"), []);
 
 		// On again.
-		delete vscode.config["pluto.lua.enable"];
+		delete vscode.config["plua.lua.enable"];
 		controller.refresh();
 		assert.strictEqual(registrations.length, 18);
 		assert(registrations.slice(12).every(r => hasLua(r.selector)));
@@ -2111,18 +2423,18 @@ testAsync("pluto.lua.enable: Lua support follows the setting without a reload", 
 		assert.deepStrictEqual(diagnosticsOf(luaDoc), ["missing-module"]);
 
 		// Indexing is separate: Lua files can be kept out of the index while the features stay on.
-		vscode.config["pluto.lua.indexFiles"] = false;
+		vscode.config["plua.lua.indexFiles"] = false;
 		await svc.scan();
 		assert.strictEqual(svc.index.lookup("hello_lua").length, 0);
 		const record = svc.getRecord(luaDoc);
 		assert.strictEqual(record.excluded, true, "an open Lua file works on its own");
 		assert(!svc.index.files.has(luaDoc.uri.toString()));
-		delete vscode.config["pluto.lua.indexFiles"];
+		delete vscode.config["plua.lua.indexFiles"];
 		// The older setting still switches Lua indexing off.
-		vscode.config["pluto.index.includeLua"] = false;
+		vscode.config["plua.index.includeLua"] = false;
 		await svc.scan();
 		assert.strictEqual(svc.index.lookup("hello_lua").length, 0);
-		delete vscode.config["pluto.index.includeLua"];
+		delete vscode.config["plua.index.includeLua"];
 		await svc.scan();
 		assert.strictEqual(svc.index.lookup("hello_lua").length, 1);
 		controller.dispose();
@@ -2165,8 +2477,8 @@ testAsync("service: ignore files and settings control what is indexed", async fu
 		assert.strictEqual(service.excludedCount, 4);
 		assert.deepStrictEqual([...service.index.manifests.values()].map(m => m.id), ["vendor-dep"]);
 
-		// pluto.workspace.exclude, applied incrementally.
-		vscode.config["pluto.workspace.exclude"] = ["**/vendor/**"];
+		// plua.workspace.exclude, applied incrementally.
+		vscode.config["plua.workspace.exclude"] = ["**/vendor/**"];
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), ["mainFn"]);
 		assert.strictEqual(service.index.manifests.size, 0, "manifests in excluded folders are dropped too");
@@ -2176,23 +2488,23 @@ testAsync("service: ignore files and settings control what is indexed", async fu
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), []);
 
-		// pluto.workspace.ignoreFiles without .plutoignore, and useGitignore off.
-		vscode.config["pluto.workspace.ignoreFiles"] = [".gitignore"];
-		vscode.config["pluto.workspace.useGitignore"] = false;
+		// plua.workspace.ignoreFiles without .plutoignore, and useGitignore off.
+		vscode.config["plua.workspace.ignoreFiles"] = [".gitignore"];
+		vscode.config["plua.workspace.useGitignore"] = false;
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), ["buildFn", "generatedFn", "legacyFn", "mainFn"]);
 
-		// search.exclude, and pluto.workspace.useSearchExclude.
+		// search.exclude, and plua.workspace.useSearchExclude.
 		vscode.config["search.exclude"] = { "**/build": true, "**/legacy/**": false };
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), ["generatedFn", "legacyFn", "mainFn"]);
-		vscode.config["pluto.workspace.useSearchExclude"] = false;
+		vscode.config["plua.workspace.useSearchExclude"] = false;
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), ["buildFn", "generatedFn", "legacyFn", "mainFn"]);
 
-		// files.exclude always applies; the legacy pluto.index.exclude setting still works.
+		// files.exclude always applies; the legacy plua.index.exclude setting still works.
 		vscode.config["files.exclude"] = { "legacy": true };
-		vscode.config["pluto.index.exclude"] = ["build/**"];
+		vscode.config["plua.index.exclude"] = ["build/**"];
 		await service.scan({ incremental: true });
 		assert.deepStrictEqual(names(service), ["generatedFn", "mainFn"]);
 
@@ -2338,7 +2650,7 @@ test("highlight colors: the object form { color, fontStyle } and the return type
 	assert.strictEqual(rules.find(r => r.name == "Pluto: tableBracket 2").settings.fontStyle, "italic");
 	// Every category of the code is in the settings schema, with a text in both languages.
 	const pkg = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "package.json"), "utf8"));
-	const schema = pkg.contributes.configuration.properties["pluto.highlight.colors"].properties;
+	const schema = pkg.contributes.configuration.properties["plua.highlight.colors"].properties;
 	assert.deepStrictEqual(Object.keys(schema).sort(), Object.keys(CATEGORIES).sort());
 	for (const prop of Object.values(schema))
 	{
@@ -2426,7 +2738,7 @@ test("highlight colors: darkColor and lightColor of the object form follow the k
 	assert.strictEqual(light.find(r => r.name == "Pluto: tableBracket 2").settings.foreground, "#0000ff");
 	// Every color field of the schema has a picker.
 	const pkg = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "package.json"), "utf8"));
-	for (const prop of Object.values(pkg.contributes.configuration.properties["pluto.highlight.colors"].properties))
+	for (const prop of Object.values(pkg.contributes.configuration.properties["plua.highlight.colors"].properties))
 	{
 		for (const field of ["color", "darkColor", "lightColor"])
 		{
@@ -2621,16 +2933,16 @@ test("json paths: missing files are reported, moved ones with a suggestion", fun
 test("workspace filter: .luaignore is an ignore file by default", function ()
 {
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-	assert.deepStrictEqual(pkg.contributes.configuration.properties["pluto.workspace.ignoreFiles"].default, [".gitignore", ".plutoignore", ".luaignore"]);
+	assert.deepStrictEqual(pkg.contributes.configuration.properties["plua.workspace.ignoreFiles"].default, [".gitignore", ".plutoignore", ".luaignore"]);
 	const wf = fs.readFileSync(path.join(__dirname, "..", "src", "workspaceFilter.js"), "utf8");
 	assert(wf.includes('[".gitignore", ".plutoignore", ".luaignore"]'));
 	// All settings of the JSON checks are declared with a default.
 	const props = pkg.contributes.configuration.properties;
-	assert.deepStrictEqual(props["pluto.json.files"].default, ["**/info.json"]);
-	assert.deepStrictEqual(props["pluto.json.extensions"].default, [".pluto", ".lua"]);
-	assert.strictEqual(props["pluto.json.checkAllPaths"].default, false);
-	assert.strictEqual(props["pluto.json.notifyNoFolder"].default, true);
-	assert.strictEqual(props["pluto.lua.checkSyntax"].default, true);
+	assert.deepStrictEqual(props["plua.json.files"].default, ["**/info.json"]);
+	assert.deepStrictEqual(props["plua.json.extensions"].default, [".pluto", ".lua"]);
+	assert.strictEqual(props["plua.json.checkAllPaths"].default, false);
+	assert.strictEqual(props["plua.json.notifyNoFolder"].default, true);
+	assert.strictEqual(props["plua.lua.checkSyntax"].default, true);
 });
 
 const multiline = require("../src/multilineFormat");
@@ -2772,7 +3084,7 @@ test("multiline format: the settings exist and are on by default", function ()
 {
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 	const props = pkg.contributes.configuration.properties;
-	for (const key of ["pluto.format.multilineParams", "pluto.format.multilineTables"])
+	for (const key of ["plua.format.multilineParams", "plua.format.multilineTables"])
 	{
 		assert.strictEqual(props[key].type, "boolean");
 		assert.strictEqual(props[key].default, true);
@@ -2900,14 +3212,14 @@ test("default values: the completion offers them after a complete type", functio
 		// A space typed by the user does not open it (the timer or Ctrl+Space does).
 		assert.deepStrictEqual(items("function name(test: bool |)", { triggerKind: 1, triggerCharacter: " " }), []);
 		// The setting switches it off.
-		vscode.config["pluto.completion.defaultValues"] = false;
+		vscode.config["plua.completion.defaultValues"] = false;
 		try
 		{
 			assert.deepStrictEqual(labels("function name(test: bool|)"), []);
 		}
 		finally
 		{
-			delete vscode.config["pluto.completion.defaultValues"];
+			delete vscode.config["plua.completion.defaultValues"];
 		}
 	}
 	finally
@@ -2920,12 +3232,12 @@ test("default values: the settings exist, with the colors of the line for dark a
 {
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 	const props = pkg.contributes.configuration.properties;
-	assert.strictEqual(props["pluto.highlight.paramNoDefault"].default, true);
-	assert.strictEqual(props["pluto.highlight.paramNoDefaultColor"].format, "color-hex");
-	assert.strictEqual(props["pluto.highlight.paramNoDefaultLightColor"].format, "color-hex");
-	assert.strictEqual(props["pluto.completion.defaultValues"].default, true);
-	assert.strictEqual(props["pluto.completion.defaultValuesDelayMs"].default, 800);
-	assert.strictEqual(props["pluto.completion.defaultValuesDelayMs"].minimum, 0);
+	assert.strictEqual(props["plua.highlight.paramNoDefault"].default, true);
+	assert.strictEqual(props["plua.highlight.paramNoDefaultColor"].format, "color-hex");
+	assert.strictEqual(props["plua.highlight.paramNoDefaultLightColor"].format, "color-hex");
+	assert.strictEqual(props["plua.completion.defaultValues"].default, true);
+	assert.strictEqual(props["plua.completion.defaultValuesDelayMs"].default, 800);
+	assert.strictEqual(props["plua.completion.defaultValuesDelayMs"].minimum, 0);
 });
 
 const autoFormat = require("../src/autoFormat");
@@ -3092,17 +3404,17 @@ test("auto format: the settings exist", function ()
 {
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 	const props = pkg.contributes.configuration.properties;
-	assert.strictEqual(props["pluto.format.newLineAfterComma"].default, true);
-	assert.strictEqual(props["pluto.format.newLineAfterCommaDelayMs"].default, 700);
-	assert.strictEqual(props["pluto.format.suggestParens"].default, true);
-	assert.strictEqual(props["pluto.format.suggestTableKeyAssign"].default, true);
-	assert.strictEqual(props["pluto.format.suggestBlockWords"].default, true);
-	assert.strictEqual(props["pluto.format.fixMismatchedBrackets"].default, "suggest");
-	assert.deepStrictEqual(props["pluto.format.fixMismatchedBrackets"].enum, ["off", "suggest", "auto"]);
-	assert.strictEqual(props["pluto.format.fixMismatchedBrackets"].enumDescriptions.length, 3);
-	assert.strictEqual(props["pluto.format.fixMismatchedBracketsDelayMs"].default, 1200);
-	assert.strictEqual(props["pluto.diagnostics.duplicateParams"].default, "warning");
-	assert.deepStrictEqual(props["pluto.diagnostics.duplicateParams"].enum, ["warning", "error", "off"]);
+	assert.strictEqual(props["plua.format.newLineAfterComma"].default, true);
+	assert.strictEqual(props["plua.format.newLineAfterCommaDelayMs"].default, 700);
+	assert.strictEqual(props["plua.format.suggestParens"].default, true);
+	assert.strictEqual(props["plua.format.suggestTableKeyAssign"].default, true);
+	assert.strictEqual(props["plua.format.suggestBlockWords"].default, true);
+	assert.strictEqual(props["plua.format.fixMismatchedBrackets"].default, "suggest");
+	assert.deepStrictEqual(props["plua.format.fixMismatchedBrackets"].enum, ["off", "suggest", "auto"]);
+	assert.strictEqual(props["plua.format.fixMismatchedBrackets"].enumDescriptions.length, 3);
+	assert.strictEqual(props["plua.format.fixMismatchedBracketsDelayMs"].default, 1200);
+	assert.strictEqual(props["plua.diagnostics.duplicateParams"].default, "warning");
+	assert.deepStrictEqual(props["plua.diagnostics.duplicateParams"].enum, ["warning", "error", "off"]);
 });
 
 test("for: the suggestions while the header is written", function ()
@@ -3178,10 +3490,10 @@ test("for: full words and the words of your own", function ()
 	// The settings are declared.
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 	const props = pkg.contributes.configuration.properties;
-	assert.strictEqual(props["pluto.format.nameStyle"].default, "short");
-	assert.deepStrictEqual(props["pluto.format.nameStyle"].enum, ["short", "full"]);
-	assert.deepStrictEqual(Object.keys(props["pluto.format.names"].properties), ["index", "key", "value", "table"]);
-	assert.strictEqual(props["pluto.format.suggestFor"].default, true);
+	assert.strictEqual(props["plua.format.nameStyle"].default, "short");
+	assert.deepStrictEqual(props["plua.format.nameStyle"].enum, ["short", "full"]);
+	assert.deepStrictEqual(Object.keys(props["plua.format.names"].properties), ["index", "key", "value", "table"]);
+	assert.strictEqual(props["plua.format.suggestFor"].default, true);
 });
 
 test("if: then or do, by the setting or by what the code uses", function ()
@@ -3216,7 +3528,7 @@ test("if: then or do, by the setting or by what the code uses", function ()
 	assert.deepStrictEqual(word("for i = 1, 3", null), ["do: do"]);
 	// The setting.
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-	const prop = pkg.contributes.configuration.properties["pluto.format.ifBlockWord"];
+	const prop = pkg.contributes.configuration.properties["plua.format.ifBlockWord"];
 	assert.strictEqual(prop.default, "auto");
 	assert.deepStrictEqual(prop.enum, ["auto", "then", "do", "off"]);
 	assert.strictEqual(prop.enumDescriptions.length, 4);
@@ -3260,17 +3572,17 @@ test("for: the values a numeric loop goes through, shown on hover", function ()
 	assert(hover("fo|r i = 1, 10, 2 do end").includes("takes the values 1, 3, 5, 7, 9 (5 times, step 2)"), hover("fo|r i = 1, 10, 2 do end"));
 	assert(hover("fo|r i = 1, 3, 5 do end").includes("the loop runs once"));
 	assert(!(hover("for i = 1, 10, 2 do end\nx = |1") || "").includes("takes the values"));
-	vscode.config["pluto.hover.forPreview"] = false;
+	vscode.config["plua.hover.forPreview"] = false;
 	try
 	{
 		assert(!hover("fo|r i = 1, 10, 2 do end").includes("takes the values"));
 	}
 	finally
 	{
-		delete vscode.config["pluto.hover.forPreview"];
+		delete vscode.config["plua.hover.forPreview"];
 	}
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-	assert.strictEqual(pkg.contributes.configuration.properties["pluto.hover.forPreview"].default, true);
+	assert.strictEqual(pkg.contributes.configuration.properties["plua.hover.forPreview"].default, true);
 });
 
 const settingsModel = require("../src/settingsModel");
@@ -3303,39 +3615,42 @@ test("settings panel: every setting is on exactly one tab with the right control
 	// The tab of a setting, and the control it gets.
 	const where = (key) => model.tabs.find(t => t.items.some(i => i.key == key)).id;
 	const item = (key) => model.tabs.flatMap(t => t.items).find(i => i.key == key);
-	assert.strictEqual(where("pluto.language"), "general");
-	assert.strictEqual(where("pluto.workspace.ignoreFiles"), "index");
-	assert.strictEqual(where("pluto.lua.compilerPath"), "lua");
-	assert.strictEqual(where("pluto.completion.defaultValues"), "completion");
-	assert.strictEqual(where("pluto.hover.forPreview"), "hover");
-	assert.strictEqual(where("pluto.outline.calls"), "outline");
-	assert.strictEqual(where("pluto.diagnostics.duplicateParams"), "diagnostics");
-	assert.strictEqual(where("pluto.highlight.colors"), "highlight");
-	assert.strictEqual(where("pluto.format.ifBlockWord"), "typing");
-	assert.strictEqual(where("pluto.json.files"), "json");
-	assert.strictEqual(item("pluto.autoCloseBlocks").kind, "boolean");
-	assert.strictEqual(item("pluto.format.ifBlockWord").kind, "enum");
-	assert.strictEqual(item("pluto.index.maxFiles").kind, "number");
-	assert.strictEqual(item("pluto.workspace.exclude").kind, "list");
-	assert.strictEqual(item("pluto.lua.compilerPath").kind, "text");
-	assert.strictEqual(item("pluto.highlight.paramNoDefaultColor").kind, "color");
-	assert.strictEqual(item("pluto.highlight.nullableTypeColor").kind, "color");
-	assert.strictEqual(item("pluto.highlight.colors").kind, "colors");
-	assert.strictEqual(item("pluto.highlight.tableBracketColors").kind, "bracketColors");
-	assert.strictEqual(item("pluto.format.names").kind, "map");
-	assert.deepStrictEqual(item("pluto.format.names").fields, ["index", "key", "value", "table"]);
-	assert.deepStrictEqual(item("pluto.format.ifBlockWord").options.map(o => o.value), ["auto", "then", "do", "off"]);
-	assert.strictEqual(item("pluto.index.maxFiles").min, 1);
-	assert.strictEqual(item("pluto.highlight.colors").categories.length, 11);
-	assert.strictEqual(item("pluto.highlight.colors").categories[0].name, "functionName");
+	assert.strictEqual(where("plua.language"), "general");
+	assert.strictEqual(where("plua.workspace.ignoreFiles"), "index");
+	assert.strictEqual(where("plua.lua.compilerPath"), "compilers");
+	assert.strictEqual(where("plua.compilers.list"), "compilers");
+	assert.strictEqual(item("plua.compilers.list").kind, "compilers");
+	assert.strictEqual(where("plua.lua.enable"), "general");
+	assert.strictEqual(where("plua.completion.defaultValues"), "completion");
+	assert.strictEqual(where("plua.hover.forPreview"), "hover");
+	assert.strictEqual(where("plua.outline.calls"), "outline");
+	assert.strictEqual(where("plua.diagnostics.duplicateParams"), "diagnostics");
+	assert.strictEqual(where("plua.highlight.colors"), "highlight");
+	assert.strictEqual(where("plua.format.ifBlockWord"), "typing");
+	assert.strictEqual(where("plua.json.files"), "json");
+	assert.strictEqual(item("plua.autoCloseBlocks").kind, "boolean");
+	assert.strictEqual(item("plua.format.ifBlockWord").kind, "enum");
+	assert.strictEqual(item("plua.index.maxFiles").kind, "number");
+	assert.strictEqual(item("plua.workspace.exclude").kind, "list");
+	assert.strictEqual(item("plua.lua.compilerPath").kind, "text");
+	assert.strictEqual(item("plua.highlight.paramNoDefaultColor").kind, "color");
+	assert.strictEqual(item("plua.highlight.nullableTypeColor").kind, "color");
+	assert.strictEqual(item("plua.highlight.colors").kind, "colors");
+	assert.strictEqual(item("plua.highlight.tableBracketColors").kind, "bracketColors");
+	assert.strictEqual(item("plua.format.names").kind, "map");
+	assert.deepStrictEqual(item("plua.format.names").fields, ["index", "key", "value", "table"]);
+	assert.deepStrictEqual(item("plua.format.ifBlockWord").options.map(o => o.value), ["auto", "then", "do", "off"]);
+	assert.strictEqual(item("plua.index.maxFiles").min, 1);
+	assert.strictEqual(item("plua.highlight.colors").categories.length, 11);
+	assert.strictEqual(item("plua.highlight.colors").categories[0].name, "functionName");
 	// The texts are the ones of the nls file; no `%key%` is left over.
-	assert.strictEqual(item("pluto.json.severity").description, nls["pluto.json.severity.markdownDescription"]);
+	assert.strictEqual(item("plua.json.severity").description, nls["plua.json.severity.markdownDescription"]);
 	assert(model.tabs.flatMap(t => t.items).every(i => !/^%.*%$/.test(i.description) && i.description.length > 0), "every setting has its text");
 	assert(model.tabs.flatMap(t => t.items).filter(i => i.options).every(i => i.options.every(o => o.label && !/^%/.test(o.label))));
 	// The value of a setting is the one in force.
-	const changed = settingsModel.buildModel(pkg, nls, (key) => key == "pluto.format.suggestFor" ? false : props[key].default, {});
-	assert.strictEqual(changed.tabs.flatMap(t => t.items).find(i => i.key == "pluto.format.suggestFor").value, false);
-	assert.strictEqual(settingsModel.tabOf("pluto.something.new"), "general", "a setting no tab claims lands on the first tab");
+	const changed = settingsModel.buildModel(pkg, nls, (key) => key == "plua.format.suggestFor" ? false : props[key].default, {});
+	assert.strictEqual(changed.tabs.flatMap(t => t.items).find(i => i.key == "plua.format.suggestFor").value, false);
+	assert.strictEqual(settingsModel.tabOf("plua.something.new"), "general", "a setting no tab claims lands on the first tab");
 });
 
 test("settings panel: only allowed values are saved", function ()
@@ -3346,63 +3661,63 @@ test("settings panel: only allowed values are saved", function ()
 	const bad = (key, value) => { const r = check(key, value); assert(!r.ok, key + " " + JSON.stringify(value) + " should be refused"); return r.error; };
 	// Which settings may be written: ours, and only the ones that exist.
 	bad("editor.fontSize", 20);
-	bad("pluto.nothing", true);
+	bad("plua.nothing", true);
 	bad("__proto__", true);
 	bad("constructor", true);
 	// Switches, choices, numbers, texts.
-	assert.strictEqual(ok("pluto.autoCloseBlocks", false).isDefault, false);
-	assert.strictEqual(ok("pluto.autoCloseBlocks", true).isDefault, true, "the default is not written to settings.json");
-	bad("pluto.autoCloseBlocks", "yes");
-	assert.strictEqual(ok("pluto.format.ifBlockWord", "do").value, "do");
-	bad("pluto.format.ifBlockWord", "later");
-	assert.strictEqual(ok("pluto.index.maxFiles", "250").value, 250, "a number arrives as text from the field");
-	assert.strictEqual(ok("pluto.index.maxFiles", 12.7).value, 13, "an integer setting is rounded");
-	bad("pluto.index.maxFiles", 0);
-	bad("pluto.index.maxFiles", "many");
-	bad("pluto.format.newLineAfterCommaDelayMs", 99999);
-	assert.strictEqual(ok("pluto.lua.compilerPath", "C:/lua/luac.exe").value, "C:/lua/luac.exe");
-	bad("pluto.lua.compilerPath", 5);
+	assert.strictEqual(ok("plua.autoCloseBlocks", false).isDefault, false);
+	assert.strictEqual(ok("plua.autoCloseBlocks", true).isDefault, true, "the default is not written to settings.json");
+	bad("plua.autoCloseBlocks", "yes");
+	assert.strictEqual(ok("plua.format.ifBlockWord", "do").value, "do");
+	bad("plua.format.ifBlockWord", "later");
+	assert.strictEqual(ok("plua.index.maxFiles", "250").value, 250, "a number arrives as text from the field");
+	assert.strictEqual(ok("plua.index.maxFiles", 12.7).value, 13, "an integer setting is rounded");
+	bad("plua.index.maxFiles", 0);
+	bad("plua.index.maxFiles", "many");
+	bad("plua.format.newLineAfterCommaDelayMs", 99999);
+	assert.strictEqual(ok("plua.lua.compilerPath", "C:/lua/luac.exe").value, "C:/lua/luac.exe");
+	bad("plua.lua.compilerPath", 5);
 	// Colors: a hex color, an empty one goes back to the default.
-	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#ff8800").value, "#ff8800");
-	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#F80").value, "#F80");
-	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "#ff880080").value, "#ff880080");
-	assert.strictEqual(ok("pluto.highlight.paramNoDefaultColor", "").isDefault, true);
-	bad("pluto.highlight.paramNoDefaultColor", "orange");
-	bad("pluto.highlight.paramNoDefaultColor", "#12");
+	assert.strictEqual(ok("plua.highlight.paramNoDefaultColor", "#ff8800").value, "#ff8800");
+	assert.strictEqual(ok("plua.highlight.paramNoDefaultColor", "#F80").value, "#F80");
+	assert.strictEqual(ok("plua.highlight.paramNoDefaultColor", "#ff880080").value, "#ff880080");
+	assert.strictEqual(ok("plua.highlight.paramNoDefaultColor", "").isDefault, true);
+	bad("plua.highlight.paramNoDefaultColor", "orange");
+	bad("plua.highlight.paramNoDefaultColor", "#12");
 	// Lists are trimmed, empty lines go.
-	assert.deepStrictEqual(ok("pluto.workspace.exclude", [" **/vendor/** ", "", "  "]).value, ["**/vendor/**"]);
-	bad("pluto.workspace.exclude", "**/vendor/**");
-	bad("pluto.workspace.exclude", [1]);
+	assert.deepStrictEqual(ok("plua.workspace.exclude", [" **/vendor/** ", "", "  "]).value, ["**/vendor/**"]);
+	bad("plua.workspace.exclude", "**/vendor/**");
+	bad("plua.workspace.exclude", [1]);
 	// The colors of the highlighting: every part is checked, an empty one is dropped, a transparent one is refused.
-	const colors = ok("pluto.highlight.colors", { functionName: { color: "#ff8800", lightColor: "#007a62", fontStyle: "bold", darkColor: "" }, type: {}, keyword: "#c586c0 bold" });
+	const colors = ok("plua.highlight.colors", { functionName: { color: "#ff8800", lightColor: "#007a62", fontStyle: "bold", darkColor: "" }, type: {}, keyword: "#c586c0 bold" });
 	assert.deepStrictEqual(colors.value, { functionName: { color: "#ff8800", lightColor: "#007a62", fontStyle: "bold" }, keyword: "#c586c0 bold" });
-	assert.strictEqual(ok("pluto.highlight.colors", {}).isDefault, true);
-	bad("pluto.highlight.colors", { functionName: { color: "#0000" } });
-	bad("pluto.highlight.colors", { functionName: { color: "blue" } });
-	bad("pluto.highlight.colors", { functionName: { fontStyle: "bolt" } });
-	bad("pluto.highlight.colors", { notACategory: { color: "#ff8800" } });
-	bad("pluto.highlight.colors", []);
-	bad("pluto.highlight.colors", "#ff8800");
-	assert.deepStrictEqual(ok("pluto.highlight.tableBracketColors", [{ color: "#e6b450" }, {}, "#59c2ff"]).value, [{ color: "#e6b450" }, "#59c2ff"]);
-	bad("pluto.highlight.tableBracketColors", [{ color: "#0000" }]);
-	bad("pluto.highlight.tableBracketColors", "#ff8800");
+	assert.strictEqual(ok("plua.highlight.colors", {}).isDefault, true);
+	bad("plua.highlight.colors", { functionName: { color: "#0000" } });
+	bad("plua.highlight.colors", { functionName: { color: "blue" } });
+	bad("plua.highlight.colors", { functionName: { fontStyle: "bolt" } });
+	bad("plua.highlight.colors", { notACategory: { color: "#ff8800" } });
+	bad("plua.highlight.colors", []);
+	bad("plua.highlight.colors", "#ff8800");
+	assert.deepStrictEqual(ok("plua.highlight.tableBracketColors", [{ color: "#e6b450" }, {}, "#59c2ff"]).value, [{ color: "#e6b450" }, "#59c2ff"]);
+	bad("plua.highlight.tableBracketColors", [{ color: "#0000" }]);
+	bad("plua.highlight.tableBracketColors", "#ff8800");
 	// The words of your own.
-	assert.deepStrictEqual(ok("pluto.format.names", { value: "item", key: "", table: " list " }).value, { value: "item", table: "list" });
-	bad("pluto.format.names", { value: "my item" });
-	bad("pluto.format.names", { other: "x" });
-	assert.strictEqual(ok("pluto.format.names", {}).isDefault, true);
+	assert.deepStrictEqual(ok("plua.format.names", { value: "item", key: "", table: " list " }).value, { value: "item", table: "list" });
+	bad("plua.format.names", { value: "my item" });
+	bad("plua.format.names", { other: "x" });
+	assert.strictEqual(ok("plua.format.names", {}).isDefault, true);
 	// The answers are in the language in use.
 	require("../src/i18n").setLanguage("ru");
 	try
 	{
-		assert.strictEqual(bad("pluto.format.newLineAfterCommaDelayMs", 99999), "ожидается число от 0 до 10000");
-		assert.strictEqual(bad("pluto.format.ifBlockWord", "later"), "это не один из вариантов");
+		assert.strictEqual(bad("plua.format.newLineAfterCommaDelayMs", 99999), "ожидается число от 0 до 10000");
+		assert.strictEqual(bad("plua.format.ifBlockWord", "later"), "это не один из вариантов");
 	}
 	finally
 	{
 		require("../src/i18n").setLanguage("en");
 	}
-	assert.strictEqual(bad("pluto.format.newLineAfterCommaDelayMs", 99999), "a number from 0 to 10000 is expected");
+	assert.strictEqual(bad("plua.format.newLineAfterCommaDelayMs", 99999), "a number from 0 to 10000 is expected");
 });
 
 test("settings panel: the page", function ()
@@ -3557,11 +3872,11 @@ test("hints: switch and case", function ()
 {
 	const all = { paramType: true, returnType: true, returnValue: true, caseColon: true, caseBreak: true, caseWords: true };
 	const kinds = (s, options) => { const t = s.replace("@", ""); return hints.suggestionsAt(t, s.indexOf("@"), options || all, { unit: "    " }).map(x => x.kind + ":" + x.insert + (x.paused ? "~" : "")); };
-	// The colon after the values, shown after a pause; not when it is there, or where the line goes on.
-	assert.deepStrictEqual(kinds("switch x do\n    case 1@\nend"), ["case-colon::~"]);
-	assert.deepStrictEqual(kinds("switch x do\n    case 2, 3@\nend"), ["case-colon::~"]);
-	assert.deepStrictEqual(kinds("switch x do\n    case \"a\"@\nend"), ["case-colon::~"]);
-	assert.deepStrictEqual(kinds("switch x do\n    case 1 @\nend"), ["case-colon::~"]);
+	// The colon after the values, shown at once like the `()` of a `function`; not when it is there, or where the line goes on.
+	assert.deepStrictEqual(kinds("switch x do\n    case 1@\nend"), ["case-colon::"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case 2, 3@\nend"), ["case-colon::"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case \"a\"@\nend"), ["case-colon::"]);
+	assert.deepStrictEqual(kinds("switch x do\n    case 1 @\nend"), ["case-colon::"]);
 	for (const text of ["switch x do\n    case 1:@\nend", "switch x do\n    case @\nend", "case 1@", "if x then\n    case 1@\nend", "switch x do\n    case f(@\nend", "switch x do\n    case 1,@\nend", "switch x do\n    case 1@ -- c\nend"])
 	{
 		assert.deepStrictEqual(kinds(text).filter(k => k.startsWith("case-colon")), [], text);
@@ -3647,14 +3962,14 @@ test("hints: the diagnostics and the settings", function ()
 	const props = pkg.contributes.configuration.properties;
 	for (const key of ["suggestParamType", "suggestReturnType", "suggestReturnValue", "suggestCaseColon", "suggestCaseBreak", "suggestCaseWords"])
 	{
-		assert.strictEqual(props["pluto.format." + key].default, true, key);
+		assert.strictEqual(props["plua.format." + key].default, true, key);
 	}
-	assert.strictEqual(props["pluto.format.suggestParamTypeDelayMs"].default, 600);
-	assert.strictEqual(props["pluto.highlight.paramNoType"].default, true);
-	assert.strictEqual(props["pluto.highlight.caseNoColon"].default, true);
-	assert.deepStrictEqual(props["pluto.diagnostics.returnTypes"].enum, ["warning", "error", "off"]);
-	assert.deepStrictEqual(props["pluto.diagnostics.caseFallthrough"].enum, ["off", "hint"]);
-	assert.strictEqual(props["pluto.diagnostics.caseFallthrough"].default, "off");
+	assert.strictEqual(props["plua.format.suggestParamTypeDelayMs"].default, 600);
+	assert.strictEqual(props["plua.highlight.paramNoType"].default, true);
+	assert.strictEqual(props["plua.highlight.caseNoColon"].default, true);
+	assert.deepStrictEqual(props["plua.diagnostics.returnTypes"].enum, ["warning", "error", "off"]);
+	assert.deepStrictEqual(props["plua.diagnostics.caseFallthrough"].enum, ["off", "hint"]);
+	assert.strictEqual(props["plua.diagnostics.caseFallthrough"].default, "off");
 });
 
 test("hints: a constructor is suggested for a class that has none", function ()
@@ -3675,5 +3990,308 @@ test("hints: a constructor is suggested for a class that has none", function ()
 	assert.deepStrictEqual(at("class A\n@\nend"), []);
 	assert.deepStrictEqual(at("class A\n    function foo@\nend"), []);
 	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-	assert.strictEqual(pkg.contributes.configuration.properties["pluto.format.suggestConstructor"].default, true);
+	assert.strictEqual(pkg.contributes.configuration.properties["plua.format.suggestConstructor"].default, true);
+});
+
+test("Shift+Backspace deletes from below: last token of the line below, then the emptied line", function ()
+{
+	const { belowTokenRange, mergeLineRanges } = require("../src/extension");
+	const range = (a, b, c, d) => ({ from: { line: a, character: b }, to: { line: c, character: d } });
+	const of = (lines, line, ch) => belowTokenRange((n) => lines[n], lines.length, line, ch);
+	// the reference example, press by press (tabs, the cursor stays on line 2)
+	let lines = ["switch test do", "\tcase", "", "\tdefault:", "end"];
+	const history = [lines];
+	const press = function ()
+	{
+		const r = of(lines, 2, 0);
+		const flat = lines.join("\n");
+		const off = (p) => lines.slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character;
+		lines = (flat.slice(0, off(r.from)) + flat.slice(off(r.to))).split("\n");
+		history.push(lines);
+	};
+	press();
+	assert.deepStrictEqual(lines, ["switch test do", "\tcase", "", "\tdefault", "end"], "the `:` goes, the tab stays");
+	press();
+	assert.deepStrictEqual(lines, ["switch test do", "\tcase", "", "\t", "end"], "the word goes whole, the tab stays");
+	press();
+	assert.deepStrictEqual(lines, ["switch test do", "\tcase", "", "end"], "the emptied line goes");
+	press();
+	assert.deepStrictEqual(lines, ["switch test do", "\tcase", "", ""], "`end` goes");
+	// each press is one edit: going back is just the previous state
+	assert.strictEqual(history.length, 5);
+	// the same with spaces, and trailing spaces
+	assert.deepStrictEqual(of(["", "    default:  "], 0, 0), range(1, 11, 1, 14));
+	assert.deepStrictEqual(of(["", "    default  "], 0, 0), range(1, 4, 1, 13));
+	assert.deepStrictEqual(of(["", "    "], 0, 0), range(0, 0, 1, 4));
+	assert.deepStrictEqual(of(["x", "", "y"], 0, 1), range(0, 1, 1, 0), "an empty line below goes");
+	assert.deepStrictEqual(of(["x = foo(a, b)", "\tprint(b)"], 0, 13), range(1, 8, 1, 9));
+	// cursor in the middle of a line with code: the nearest token to the right
+	assert.deepStrictEqual(of(["foo bar(x)", "\tz"], 0, 3), range(0, 3, 0, 7));
+	assert.deepStrictEqual(of(["foo(x)", "\tz"], 0, 3), range(0, 3, 0, 4));
+	// spaces to the right only: the line below is what counts
+	assert.deepStrictEqual(of(["foo   ", "\tz"], 0, 3), range(1, 1, 1, 2));
+	// nothing below
+	assert.strictEqual(of(["foo"], 0, 3), null);
+	// cursors that delete the same text are joined
+	assert.deepStrictEqual(mergeLineRanges([range(0, 5, 3, 0), range(0, 5, 2, 0), range(6, 1, 7, 0)]), [range(0, 5, 3, 0), range(6, 1, 7, 0)]);
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.ok(pkg.contributes.keybindings.some(k => k.command == "plua.deleteFromBelow" && k.key == "shift+backspace" && k.when == "editorTextFocus && !editorReadonly"));
+	assert.strictEqual(pkg.contributes.configuration.properties["plua.shiftBackspaceDeleteFromBelow.enabled"].default, true);
+});
+
+test("plua.compilers.list: validation of the panel and choice of the first existing entry", function ()
+{
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.strictEqual(pkg.contributes.configuration.properties["plua.compilers.list"].scope, "machine", "a workspace cannot pick the program");
+	const ok = settingsModel.validateChange(pkg, "plua.compilers.list", [{ language: "lua", path: " lua5.4 " }, { language: "lua", path: "lua5.4" }, { language: "pluto", path: "" }]);
+	assert.ok(ok.ok);
+	assert.deepStrictEqual(ok.value, [{ language: "lua", path: "lua5.4" }], "trimmed, merged, empty dropped");
+	assert.ok(settingsModel.validateChange(pkg, "plua.compilers.list", []).isDefault);
+	for (const bad of [[{ language: "php", path: "x" }], [{ language: "lua", path: "lua & calc" }], [{ language: "lua", path: "a" + String.fromCharCode(10) + "b" }], [{ language: "lua", path: "x", extra: 1 }], "lua"])
+	{
+		assert.strictEqual(settingsModel.validateChange(pkg, "plua.compilers.list", bad).ok, false, JSON.stringify(bad));
+	}
+	const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "plua-list-"));
+	const exe = path.join(dir, process.platform == "win32" ? "mylua.exe" : "mylua");
+	fs.writeFileSync(exe, "");
+	fs.chmodSync(exe, 0o755);
+	const picked = compiler.pickFromList([{ language: "lua", path: path.join(dir, "missing") }, { language: "pluto", path: exe }, { language: "lua", path: exe }], "lua", []);
+	assert.strictEqual(picked.path, exe);
+	assert.strictEqual(picked.problems.length, 1);
+	assert.strictEqual(compiler.pickFromList([{ language: "pluto", path: exe }], "lua", []).path, null);
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("layoutFixer: Э and э open strings, the Russian text inside stays", function ()
+{
+	const fx = require("../src/layoutFixer");
+	const layout = fx.buildLayout({});
+	const run = (text, opts, lay) => fx.applyEdits(text, fx.convertRange(text, 0, text.length, lay || layout, opts || {}));
+	assert.strictEqual(run("дщсфд ы = ЭПриветЭ"), "local s = \"Привет\"");
+	assert.strictEqual(run("дщсфд ы = эПриветэ"), "local s = 'Привет'");
+	assert.strictEqual(run("зкште(ЭДобрый деньЭ)"), "print(\"Добрый день\")", "the text with a space stays whole");
+});
+
+test("layoutFixer: live typing converts keys in code only", function ()
+{
+	const fx = require("../src/layoutFixer");
+	const layout = fx.buildLayout({});
+	const live = (before, ch, opts) => { const r = fx.liveChange(before + ch, before.length, layout, Object.assign({ mode: "live" }, opts)); return r ? r.text : null; };
+	assert.strictEqual(live("x = ", "Э"), "\"");
+	assert.strictEqual(live("x = ", "э"), "'");
+	assert.strictEqual(live("", "ф"), "a");
+	assert.strictEqual(live("", "Ф"), "A");
+	assert.strictEqual(live("x = ", "х"), "[");
+	assert.strictEqual(live("x = \"При", "Э"), "\"", "closes the string it is in");
+	assert.strictEqual(live("x = 'При", "э"), "'");
+	assert.strictEqual(live("x = \"При", "э"), null, "э does not close a double-quoted string");
+	assert.strictEqual(live("x = \"", "Э"), null, "an empty string: Э is a letter");
+	assert.strictEqual(live("x = \"При", "Э", { autoCloseCyrillicQuotes: false }), null);
+	assert.strictEqual(live("x = \"При", "ф"), null, "inside a string");
+	assert.strictEqual(live("-- коммент", "ф"), null, "inside a comment");
+	assert.strictEqual(live("--[[ коммент\nещё ", "ф"), null, "inside a block comment");
+	assert.strictEqual(live("x = [[текст ", "ф"), null, "inside a long string");
+	assert.strictEqual(live("-- коммент", "ф", { ignoreComments: false }), "a");
+	assert.strictEqual(live("-- коммент\nx = ", "ф"), "a", "a comment ends with its line");
+	assert.strictEqual(live("x = ", "Э", { mode: "off" }), null);
+	// The other modes convert only a quote at once; the words wait for a delimiter.
+	assert.strictEqual(live("x = ", "Э", { mode: "keywordsOnly" }), "\"");
+	assert.strictEqual(live("", "ф", { mode: "allCodeWords" }), null);
+	const word = (text, mode) => { const r = fx.wordChange(text, text.length, layout, { mode }); return r ? r.text : null; };
+	assert.strictEqual(word("дщсфд", "keywordsOnly"), "local");
+	assert.strictEqual(word("руддщ", "keywordsOnly"), null, "hello is not a keyword");
+	assert.strictEqual(word("руддщ", "allCodeWords"), "hello");
+	assert.strictEqual(word("x = руддщ", "allCodeWords"), "hello");
+	assert.strictEqual(word("-- руддщ", "allCodeWords"), null, "a comment");
+	assert.strictEqual(word("x = \"руддщ", "allCodeWords"), null, "a string");
+	assert.strictEqual(word("abcруддщ", "allCodeWords"), null, "a word that is partly English");
+	assert.strictEqual(word("дщсфдюч", "allCodeWords"), "local.x", "ю is the dot key");
+	assert.strictEqual(word("дщсфд", "live"), null);
+	assert.ok(fx.isDelimiter(" ") && fx.isDelimiter("\n\t") && fx.isDelimiter("(") && !fx.isDelimiter("ф") && !fx.isDelimiter("a"));
+});
+
+test("layoutFixer: the three profiles", function ()
+{
+	const fx = require("../src/layoutFixer");
+	const conv = (text, profile, extra) => { const l = fx.buildLayout(Object.assign({ baseKeyboardProfile: profile }, extra)); return fx.applyEdits(text, fx.convertRange(text, 0, text.length, l, {})); };
+	assert.strictEqual(conv("х ъ Х Ъ ж Ж б Б ю Ю ё Ё", "physicalQwerty"), "[ ] { } ; : , < . > ` ~");
+	assert.strictEqual(conv("х ъ Х Ъ ж Ж б Б ю Ю ё Ё", "hybridSmart"), "[ ] { } ; : б Б ю Ю ё Ё");
+	assert.strictEqual(conv("х ъ Х Ъ ж Ж б Б ю Ю ё Ё", "keepLocalPunctuation"), "х ъ Х Ъ ж Ж б Б ю Ю ё Ё");
+	for (const profile of ["physicalQwerty", "hybridSmart", "keepLocalPunctuation"])
+	{
+		assert.strictEqual(conv("ЭфЭ ыы", profile), "\"ф\" ss", profile + ": letters and quotes");
+	}
+	// The signs of the Russian layout next to Cyrillic letters: only the physical profile turns them into the keys' signs.
+	assert.strictEqual(conv("ф.ф,ф", "physicalQwerty"), "a/a?a");
+	assert.strictEqual(conv("ф.ф,ф", "hybridSmart"), "a.a,a");
+	assert.strictEqual(conv("ф.ф,ф", "keepLocalPunctuation"), "a.a,a");
+	assert.strictEqual(conv("а.б . в", "physicalQwerty"), "f/, . d", "a lone . far from letters stays");
+	assert.strictEqual(conv("ф;ф", "physicalQwerty"), "a$a");
+	assert.strictEqual(conv("ф:ф", "physicalQwerty"), "a^a");
+	assert.strictEqual(conv("ф?ф", "physicalQwerty"), "a&a");
+	// A custom map goes over the profile.
+	assert.strictEqual(conv("ё х", "physicalQwerty", { customMap: { "ё": "~", "х": "" } }), "~ х");
+});
+
+test("layoutFixer: Ukrainian and Belarusian layouts", function ()
+{
+	const fx = require("../src/layoutFixer");
+	const conv = (text, layouts) => { const l = fx.buildLayout({ sourceLayouts: layouts }); return fx.applyEdits(text, fx.convertRange(text, 0, text.length, l, {})); };
+	assert.strictEqual(conv("і ї Ї ґ", ["uk"]), "s ] } \\");
+	assert.strictEqual(conv("єПриветє", ["uk"]), "'Привет'", "є opens a string like э");
+	assert.strictEqual(conv("ЄфЄ", ["uk"]), "\"ф\"");
+	assert.strictEqual(conv("ў Ў і", ["be"]), "o O s");
+	assert.strictEqual(conv("ў", ["ru"]), "ў", "not a Russian key");
+	assert.strictEqual(conv("ф ў", ["ru", "be"]), "a o");
+	assert.strictEqual(conv("э", ["uk"]), "э", "Ukrainian has no э");
+});
+
+test("layoutFixer: the manual command skips comments and strings, and the editor never touches undo/redo", function ()
+{
+	const fx = require("../src/layoutFixer");
+	const { planChange } = require("../src/layoutFixerEditor");
+	const layout = fx.buildLayout({});
+	const text = "дщсфд ы = 1 -- дщсфд\nдщсфд т = \"дщсфд\" --[[ дщсфд ]] дщсфд";
+	assert.strictEqual(fx.applyEdits(text, fx.convertRange(text, 0, text.length, layout, {})), "local s = 1 -- дщсфд\nlocal n = \"дщсфд\" --[[ дщсфд ]] local");
+	assert.strictEqual(fx.applyEdits("-- дщсфд", fx.convertRange("-- дщсфд", 0, 8, layout, { ignoreComments: false })), "-- local");
+	// A range: the state before it counts (it starts inside a comment).
+	const two = "-- дщсфд\nдщсфд";
+	assert.strictEqual(fx.applyEdits(two, fx.convertRange(two, 3, two.length, layout, {})), "-- дщсфд\nlocal");
+	// Typing: converted, unless the change is an undo or a redo.
+	const reasons = require("vscode").TextDocumentChangeReason;
+	const options = { enabled: true, mode: "live", sourceLayouts: ["ru"], baseKeyboardProfile: "physicalQwerty", ignoreComments: true, ignoreStrings: true, autoCloseCyrillicQuotes: true, customMap: {} };
+	const typed = { rangeLength: 0, text: "ф" };
+	assert.deepStrictEqual(planChange("ф", typed, 0, undefined, options), { start: 0, end: 1, text: "a" });
+	assert.strictEqual(planChange("ф", typed, 0, reasons.Undo, options), null, "Ctrl+Z");
+	assert.strictEqual(planChange("ф", typed, 0, reasons.Redo, options), null, "Ctrl+Y");
+	assert.strictEqual(planChange("ф", typed, 0, undefined, Object.assign({}, options, { enabled: false })), null);
+	assert.strictEqual(planChange("ф", typed, 0, undefined, Object.assign({}, options, { mode: "off" })), null);
+	assert.strictEqual(planChange("фы", { rangeLength: 0, text: "фы" }, 0, undefined, options), null, "a paste is left alone");
+	assert.strictEqual(planChange("ф", { rangeLength: 1, text: "ф" }, 0, undefined, options), null, "a replaced selection");
+	assert.deepStrictEqual(planChange("дщсфд ", { rangeLength: 0, text: " " }, 5, undefined, Object.assign({}, options, { mode: "keywordsOnly" })), { start: 0, end: 5, text: "local" });
+});
+
+test("layoutFixer: settings of the panel", function ()
+{
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	const keys = ["enabled", "mode", "baseKeyboardProfile", "sourceLayouts", "ignoreComments", "ignoreStrings", "autoCloseCyrillicQuotes", "customMap"];
+	for (const k of keys)
+	{
+		assert.ok(props["plua.layoutFixer." + k], k);
+		assert.strictEqual(settingsModel.tabOf("plua.layoutFixer." + k), "layout");
+		const text = props["plua.layoutFixer." + k].markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], "texts of " + k);
+	}
+	assert.deepStrictEqual(props["plua.layoutFixer.mode"].enum, ["live", "allCodeWords", "keywordsOnly", "off"]);
+	assert.deepStrictEqual(props["plua.layoutFixer.baseKeyboardProfile"].enum, ["physicalQwerty", "hybridSmart", "keepLocalPunctuation"]);
+	assert.strictEqual(props["plua.layoutFixer.mode"].default, "live");
+	assert.deepStrictEqual(props["plua.layoutFixer.sourceLayouts"].default, ["ru"]);
+	assert.ok(pkg.contributes.commands.some(c => c.command == "plua.convertLayout"));
+	assert.ok(pkg.activationEvents.includes("onCommand:plua.convertLayout"));
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.sourceLayouts", ["ru", "uk", "ru"]).value.length, 2);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.sourceLayouts", ["de"]).ok, false);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.customMap", { "ё": "~" }).ok, true);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.customMap", { "ёё": "~" }).ok, false);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.customMap", { "ё": 1 }).ok, false);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.layoutFixer.mode", "nope").ok, false);
+});
+
+test("autoIndent: empty lines inside blocks keep their indentation on Enter", function ()
+{
+	const ai = require("../src/autoIndent");
+	const tabs = { insertSpaces: false, tabSize: 4 };
+	const spaces = { insertSpaces: true, tabSize: 2 };
+	const at = (lines) => (i) => lines[i];
+	// switch -> case 1: -> print("one") -> Enter -> the empty line keeps its indentation -> break
+	let lines = ["switch x do", "\tcase 1:", "\t\tprint(\"one\")", "", ""];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 3, tabs, {}), [{ line: 3, text: "\t\t" }, { line: 4, text: "\t\t" }]);
+	lines = ["switch x do", "  case 1:", "    print(\"one\")", "", ""];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 3, spaces, {}), [{ line: 3, text: "    " }, { line: 4, text: "    " }], "spaces of the same width as the line above");
+	// The editor already kept the whitespace of the left line, only the new line is short.
+	lines = ["if x then", "\tprint(1)", "\t", ""];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 2, tabs, {}), [{ line: 3, text: "\t" }]);
+	// Nothing to do when both are right, or the setting is off.
+	lines = ["if x then", "\tprint(1)", "\t", "\t"];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 2, tabs, {}), []);
+	lines = ["if x then", "\tprint(1)", "", ""];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 2, tabs, { preserveEmptyLines: false }), []);
+	assert.deepStrictEqual(ai.planEnter(at(lines), 2, tabs, { enabled: false }), []);
+	// Enter inside of a line is not for us.
+	lines = ["foo(a,", "b)"];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 0, tabs, {}), []);
+	// Empty lines after openers get one level deeper.
+	for (const [opener, deeper] of [["function f(a)", true], ["local function f(a, b): int", true], ["if x then", true], ["else", true], ["elseif y then", true],
+		["for i = 1, 3 do", true], ["while true do", true], ["do", true], ["repeat", true], ["foo(", true], ["local t = {", true], ["local f = function(x)", true],
+		["switch x do", true], ["class Foo", true], ["try", true], ["catch e then", true], ["case 1:", true], ["default:", true],
+		["print(1)", false], ["end", false], ["until x", false], ["if x then return end", false], ["local t = {}", false], ["foo(a, b)", false], ["-- if x then", false], ["print(\"do\")", false]])
+	{
+		const got = ai.planEnter(at(["\t" + opener, "", ""]), 1, tabs, {});
+		assert.deepStrictEqual(got, deeper ? [{ line: 1, text: "\t\t" }, { line: 2, text: "\t\t" }] : [{ line: 1, text: "\t" }, { line: 2, text: "\t" }], opener);
+	}
+	// The block of the last line with code counts, over other empty lines.
+	lines = ["function f()", "\tx()", "", "", ""];
+	assert.deepStrictEqual(ai.planEnter(at(lines), 3, tabs, {}), [{ line: 3, text: "\t" }, { line: 4, text: "\t" }]);
+	// A line that is the first of the file.
+	assert.deepStrictEqual(ai.planEnter(at(["", ""]), 0, tabs, {}), []);
+});
+
+test("autoIndent: the line after case and default, by the setting", function ()
+{
+	const ai = require("../src/autoIndent");
+	const tabs = { insertSpaces: false, tabSize: 4 };
+	const at = (lines) => (i) => lines[i];
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tcase 1:", ""]), 1, tabs, {}), [{ line: 2, text: "\t\t" }]);
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tdefault:", "\t"]), 1, tabs, {}), [{ line: 2, text: "\t\t" }]);
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tcase 1:", "\t\t"]), 1, tabs, {}), [], "already right");
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tcase 1:", "\t\t"]), 1, tabs, { indentAfterCase: false }), [{ line: 2, text: "\t" }]);
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tcase 1:", ""]), 1, tabs, { indentAfterCase: false }), [{ line: 2, text: "\t" }]);
+	assert.deepStrictEqual(ai.planEnter(at(["switch x do", "\tcase 1:", ""]), 1, { insertSpaces: true, tabSize: 3 }, {}), [{ line: 2, text: "\t   " }], "the unit comes from the editor");
+	// The empty line below a case label follows the setting too.
+	assert.strictEqual(ai.indentForEmptyLine(at(["\tcase 1:", ""]), 1, tabs, { indentAfterCase: false }), "\t");
+	assert.strictEqual(ai.indentForEmptyLine(at(["\tcase 1:", ""]), 1, tabs, {}), "\t\t");
+	assert.ok(ai.isCaseLine("case 1:") && ai.isCaseLine("\tdefault:") && ai.isCaseLine("case \"a\", \"b\"") && !ai.isCaseLine("local case = 1") && !ai.isCaseLine("-- case 1:"));
+});
+
+test("autoIndent: whitespace-only lines for the cleaning on save, settings and registration", function ()
+{
+	const ai = require("../src/autoIndent");
+	const lines = ["a", "\t\t", "", "  ", "\tb"];
+	assert.deepStrictEqual(ai.whitespaceOnlyLines((i) => lines[i], lines.length), [{ line: 1, length: 2 }, { line: 3, length: 2 }]);
+	assert.strictEqual(ai.indentUnit({ insertSpaces: false, tabSize: 8 }), "\t");
+	assert.strictEqual(ai.indentUnit({ insertSpaces: true, tabSize: 2 }), "  ");
+	assert.strictEqual(ai.indentUnit({}), "    ");
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	const defaults = { enabled: true, preserveEmptyLines: true, indentAfterCase: true, trimOnSave: false };
+	for (const [k, def] of Object.entries(defaults))
+	{
+		const prop = props["plua.autoIndent." + k];
+		assert.ok(prop && prop.type == "boolean" && prop.default === def, k);
+		assert.strictEqual(settingsModel.tabOf("plua.autoIndent." + k), "autoIndent");
+		const text = prop.markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], "texts of " + k);
+	}
+});
+
+test("autoIndent: a variable called case, a field called do and the Russian signs are not mistaken", function ()
+{
+	const ai = require("../src/autoIndent");
+	assert.strictEqual(ai.isCaseLine("case = 5"), false);
+	assert.strictEqual(ai.isCaseLine("case.x = 1"), false);
+	assert.strictEqual(ai.isCaseLine("case (1):"), true);
+	assert.strictEqual(ai.increasesAfter("x.do"), false);
+	assert.strictEqual(ai.increasesAfter("obj:then"), false);
+	assert.strictEqual(ai.increasesAfter("for i = 1, 3 do"), true);
+	const fx = require("../src/layoutFixer");
+	const layout = fx.buildLayout({});
+	const text = "ф\"ф";
+	assert.strictEqual(fx.applyEdits(text, fx.convertRange(text, 0, text.length, layout, {})), "a\"ф", "a quote in code opens a string, it is never turned into @");
 });

@@ -12,7 +12,7 @@ const { buildModel, validateChange, TABS } = require("./settingsModel");
 /** Strings of the panel itself (not of the settings), in the language in use. */
 function panelStrings()
 {
-	const keys = ["title", "search", "reset", "openJson", "add", "remove", "clear", "isDefault", "changed", "saved", "invalid", "style", "color", "dark", "light", "nothing", "colorsHead", "oneLine"];
+	const keys = ["title", "search", "reset", "openJson", "add", "remove", "clear", "isDefault", "changed", "saved", "invalid", "style", "color", "dark", "light", "nothing", "colorsHead", "oneLine", "compilerPath"];
 	const out = {};
 	for (const k of keys)
 	{
@@ -170,7 +170,7 @@ function registerSettingsPanel(context, options)
 			vscode.commands.executeCommand("workbench.action.openSettingsJson");
 			return null;
 		}
-		if (message.type == "reset" && typeof message.key == "string" && Object.prototype.hasOwnProperty.call(props, message.key) && message.key.startsWith("pluto."))
+		if (message.type == "reset" && typeof message.key == "string" && Object.prototype.hasOwnProperty.call(props, message.key) && message.key.startsWith("plua."))
 		{
 			await vscode.workspace.getConfiguration().update(message.key, undefined, vscode.ConfigurationTarget.Global);
 			return { type: "saved", key: message.key, ok: true, value: valueOf(message.key) };
@@ -221,7 +221,7 @@ function registerSettingsPanel(context, options)
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
 			// Edited in settings.json or the standard editor: the panel follows.
-			if (!panel || !event.affectsConfiguration("pluto") || Date.now() - own < 400)
+			if (!panel || !event.affectsConfiguration("plua") || Date.now() - own < 400)
 			{
 				return;
 			}

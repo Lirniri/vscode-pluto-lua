@@ -539,6 +539,59 @@ function inlineSuggestionsAt(text, offset, options)
 }
 
 /**
+ * The word typed so far in front of the cursor at the end of a line (`th` of `if x th|`). The text and offset
+ * without it are what the suggestions are made from: the line is judged as it was before the word was started.
+ * @returns {{ word: string, text: string, offset: number }|null}
+ */
+function partialWordAt(text, offset)
+{
+	const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+	let lineEnd = text.indexOf("\n", offset);
+	if (lineEnd == -1)
+	{
+		lineEnd = text.length;
+	}
+	if (text.slice(offset, lineEnd).trim() != "")
+	{
+		return null;
+	}
+	const m = /(?:^|\s)([A-Za-z_]\w*)$/.exec(text.slice(lineStart, offset));
+	if (!m)
+	{
+		return null;
+	}
+	const start = offset - m[1].length;
+	return { word: m[1], text: text.slice(0, start) + text.slice(offset), offset: start };
+}
+
+/**
+ * Of suggestions made without a half-typed word, those that go on with it, cut to what is still missing:
+ * `then` with `th` typed → `en`. A suggestion that does not start with the word, or is the word, falls out.
+ * @param {{ insert: string, snippet?: string }[]} suggestions
+ * @param {string} word
+ */
+function finishWord(suggestions, word)
+{
+	const cut = (s) =>
+	{
+		const body = s.trimStart();
+		return body.length > word.length && body.startsWith(word) ? body.slice(word.length) : null;
+	};
+	const out = [];
+	for (const s of suggestions)
+	{
+		const insert = cut(s.insert);
+		const snippet = s.snippet == null ? undefined : cut(s.snippet);
+		if (insert == null || (s.snippet != null && snippet == null))
+		{
+			continue;
+		}
+		out.push(Object.assign({}, s, s.snippet == null ? { insert } : { insert, snippet }));
+	}
+	return out;
+}
+
+/**
  * The values a numeric `for` goes through: `for i = 1, 10, 2` → 1, 3, 5, 7, 9.
  * @param {string} lineText
  * @returns {{ kind: "values"|"none"|"stepZero", name: string, from: number, to: number, step: number, total: number, values: string[], last: string }|null}
@@ -822,6 +875,6 @@ function findBracketMismatches(text)
 }
 
 module.exports = {
-	inCode, innermostBracketAt, planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, forSuggestionsAt, findDuplicates, findBracketMismatches,
+	inCode, innermostBracketAt, planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, partialWordAt, finishWord, forSuggestionsAt, findDuplicates, findBracketMismatches,
 	NAME_STYLES, namesFor, countIfStyles, chooseIfWord, nearestTable, splitTopLevel, describeNumericFor, forPreviewText,
 };

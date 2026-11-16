@@ -6,7 +6,7 @@
 
 const vscode = require("vscode");
 const fs = require("fs");
-const { planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, findBracketMismatches, countIfStyles, chooseIfWord, namesFor } = require("./autoFormat");
+const { planCommaNewLine, inlineSuggestionAt, inlineSuggestionsAt, partialWordAt, finishWord, findBracketMismatches, countIfStyles, chooseIfWord, namesFor } = require("./autoFormat");
 const { suggestionsAt, constructorSuggestionsAt } = require("./hints");
 const { classChecker } = require("./defaultValuesEditor");
 const { t } = require("./i18n");
@@ -76,7 +76,7 @@ async function workspaceIfCounts(service)
 function registerAutoFormat(context, service)
 {
 	const applies = (document) => document.languageId == "pluto" || (document.languageId == "lua" && service.luaEnabled());
-	const settings = (document) => vscode.workspace.getConfiguration("pluto", document.uri);
+	const settings = (document) => vscode.workspace.getConfiguration("plua", document.uri);
 
 	// One action waits at a time (a pause after typing). Typing, or moving the cursor away, cancels it.
 	let pending = null;
@@ -360,36 +360,63 @@ function registerAutoFormat(context, service)
 				}
 				const add = (s) => items.push(new vscode.InlineCompletionItem(s.snippet ? new vscode.SnippetString(s.snippet) : s.insert, new vscode.Range(position, position),
 					s.command ? { command: s.command, title: "" } : undefined));
-				if (options.parens || options.keyAssign || options.blockWords || options.forHints)
+				if (options.blockWords && /^\s*(?:else)?if\b/.test(document.lineAt(position.line).text.slice(0, position.character)))
 				{
 					// `then` or `do` after an `if`: by the setting, or by what the file (then the workspace) uses.
-					if (options.blockWords && /^\s*(?:else)?if\b/.test(document.lineAt(position.line).text.slice(0, position.character)))
+					const setting = config.get("format.ifBlockWord", "auto");
+					let word = chooseIfWord(setting, countIfStyles(text));
+					if (setting == "auto" && countIfStyles(text).then == countIfStyles(text).do)
 					{
-						const setting = config.get("format.ifBlockWord", "auto");
-						let word = chooseIfWord(setting, countIfStyles(text));
-						if (setting == "auto" && countIfStyles(text).then == countIfStyles(text).do)
-						{
-							word = chooseIfWord(setting, countIfStyles(text), await workspaceIfCounts(service));
-						}
-						options.ifWord = word;
+						word = chooseIfWord(setting, countIfStyles(text), await workspaceIfCounts(service));
 					}
-					inlineSuggestionsAt(text, offset, options).forEach(add);
+					options.ifWord = word;
 				}
-				if (document.languageId == "pluto")
+				// All the suggestions of a text at a place (those of the `format` family and the hints).
+				const gather = (src, at) =>
 				{
-					const found = suggestionsAt(text, offset, hintOptions(document), { isClass: classChecker(service, document, position.line), unit: "    " });
-					const open = !!(inlineContext && inlineContext.selectedCompletionInfo); // the list of completions is open
-					for (const s of found)
+					const list = [];
+					if (options.parens || options.keyAssign || options.blockWords || options.forHints)
 					{
-						if (!s.paused)
+						inlineSuggestionsAt(src, at, options).forEach((s) => list.push(s));
+					}
+					if (document.languageId == "pluto")
+					{
+						suggestionsAt(src, at, hintOptions(document), { isClass: classChecker(service, document, position.line), unit: "    " }).forEach((s) => list.push(s));
+					}
+					return list;
+				};
+				// A word that is half typed (`th`): what goes on with it, as if the word was not there yet. Its rest is
+				// shown (`en`); the suggestions for the line with the half word as a name of its own (` then`) give way.
+				const partial = partialWordAt(text, offset);
+				// After an `if` both `then` and `do` are right: with a part of either typed, the one it belongs to is finished.
+				const finishing = [];
+				if (partial)
+				{
+					const preferred = options.ifWord;
+					for (const word of preferred ? ["then", "do"] : [preferred])
+					{
+						options.ifWord = word;
+						for (const s of finishWord(gather(partial.text, partial.offset), partial.word))
 						{
-							add(s);
+							if (!finishing.some((f) => f.insert == s.insert && f.snippet == s.snippet))
+							{
+								finishing.push(s);
+							}
 						}
-						else if (rest && rest.armed && !open && rest.uri == document.uri.toString() && rest.version == document.version && rest.offset == offset)
-						{
-							rest.shown = true;
-							add(s);
-						}
+					}
+					options.ifWord = preferred;
+				}
+				const open = !!(inlineContext && inlineContext.selectedCompletionInfo); // the list of completions is open
+				for (const s of finishing.length ? finishing : gather(text, offset))
+				{
+					if (!s.paused)
+					{
+						add(s);
+					}
+					else if (rest && rest.armed && !open && rest.uri == document.uri.toString() && rest.version == document.version && rest.offset == offset)
+					{
+						rest.shown = true;
+						add(s);
 					}
 				}
 				return items.length ? items : undefined;

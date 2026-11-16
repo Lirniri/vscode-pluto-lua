@@ -14,7 +14,7 @@
 		"linter",
 		"settings"
 	],
-	"version": "0.29.3",
+	"version": "0.29.7",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -102,12 +102,47 @@
 			{
 				"command": "plua.openSettings",
 				"title": "%command.openSettings.title%"
+			},
+			{
+				"command": "plua.renameClass",
+				"title": "%command.renameClass.title%"
+			},
+			{
+				"command": "plua.convertLayout",
+				"title": "%command.convertLayout.title%"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "plua.renameClass",
+				"key": "f2",
+				"when": "editorTextFocus && !editorReadonly && editorLangId == pluto"
+			},
+			{
+				"command": "plua.smartBackspace",
+				"key": "backspace",
+				"when": "editorTextFocus && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && (editorLangId == pluto || editorLangId == lua && config.plua.lua.enable)"
+			},
+			{
+				"command": "plua.smartDelete",
+				"key": "delete",
+				"when": "editorTextFocus && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && (editorLangId == pluto || editorLangId == lua && config.plua.lua.enable)"
+			},
+			{
+				"command": "plua.deleteFromBelow",
+				"key": "shift+backspace",
+				"when": "editorTextFocus && !editorReadonly"
+			},
+			{
+				"command": "plua.shiftDelete",
+				"key": "shift+delete",
+				"when": "editorTextFocus && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && (editorLangId == pluto || editorLangId == lua && config.plua.lua.enable)"
 			}
 		],
 		"configuration": {
 			"title": "%config.title%",
 			"properties": {
-				"pluto.language": {
+				"plua.language": {
 					"type": "string",
 					"enum": [
 						"auto",
@@ -115,98 +150,188 @@
 						"ru"
 					],
 					"enumDescriptions": [
-						"%pluto.language.enumDescriptions.0%",
-						"%pluto.language.enumDescriptions.1%",
-						"%pluto.language.enumDescriptions.2%"
+						"%plua.language.enumDescriptions.0%",
+						"%plua.language.enumDescriptions.1%",
+						"%plua.language.enumDescriptions.2%"
 					],
 					"default": "auto",
-					"markdownDescription": "%pluto.language.markdownDescription%"
+					"markdownDescription": "%plua.language.markdownDescription%"
 				},
-				"pluto.lua.enable": {
+				"plua.lua.enable": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.lua.enable.markdownDescription%"
+					"markdownDescription": "%plua.lua.enable.markdownDescription%"
 				},
-				"pluto.json.enable": {
+				"plua.autoIndent.enabled": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.json.enable.markdownDescription%"
+					"markdownDescription": "%plua.autoIndent.enabled.markdownDescription%"
 				},
-				"pluto.json.files": {
+				"plua.autoIndent.preserveEmptyLines": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.autoIndent.preserveEmptyLines.markdownDescription%"
+				},
+				"plua.autoIndent.indentAfterCase": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.autoIndent.indentAfterCase.markdownDescription%"
+				},
+				"plua.autoIndent.trimOnSave": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "%plua.autoIndent.trimOnSave.markdownDescription%"
+				},
+				"plua.layoutFixer.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.layoutFixer.enabled.markdownDescription%"
+				},
+				"plua.layoutFixer.mode": {
+					"type": "string",
+					"enum": ["live", "allCodeWords", "keywordsOnly", "off"],
+					"enumDescriptions": [
+						"%plua.layoutFixer.mode.enumDescriptions.0%",
+						"%plua.layoutFixer.mode.enumDescriptions.1%",
+						"%plua.layoutFixer.mode.enumDescriptions.2%",
+						"%plua.layoutFixer.mode.enumDescriptions.3%"
+					],
+					"default": "live",
+					"markdownDescription": "%plua.layoutFixer.mode.markdownDescription%"
+				},
+				"plua.layoutFixer.baseKeyboardProfile": {
+					"type": "string",
+					"enum": ["physicalQwerty", "hybridSmart", "keepLocalPunctuation"],
+					"enumDescriptions": [
+						"%plua.layoutFixer.baseKeyboardProfile.enumDescriptions.0%",
+						"%plua.layoutFixer.baseKeyboardProfile.enumDescriptions.1%",
+						"%plua.layoutFixer.baseKeyboardProfile.enumDescriptions.2%"
+					],
+					"default": "physicalQwerty",
+					"markdownDescription": "%plua.layoutFixer.baseKeyboardProfile.markdownDescription%"
+				},
+				"plua.layoutFixer.sourceLayouts": {
+					"type": "array",
+					"items": { "type": "string", "enum": ["ru", "uk", "be"] },
+					"default": ["ru"],
+					"markdownDescription": "%plua.layoutFixer.sourceLayouts.markdownDescription%"
+				},
+				"plua.layoutFixer.ignoreComments": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.layoutFixer.ignoreComments.markdownDescription%"
+				},
+				"plua.layoutFixer.ignoreStrings": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.layoutFixer.ignoreStrings.markdownDescription%"
+				},
+				"plua.layoutFixer.autoCloseCyrillicQuotes": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.layoutFixer.autoCloseCyrillicQuotes.markdownDescription%"
+				},
+				"plua.layoutFixer.customMap": {
+					"type": "object",
+					"additionalProperties": { "type": "string" },
+					"default": {},
+					"markdownDescription": "%plua.layoutFixer.customMap.markdownDescription%"
+				},
+				"plua.json.enable": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.json.enable.markdownDescription%"
+				},
+				"plua.json.files": {
 					"type": "array",
 					"items": { "type": "string" },
 					"default": ["**/info.json"],
 					"scope": "resource",
-					"markdownDescription": "%pluto.json.files.markdownDescription%"
+					"markdownDescription": "%plua.json.files.markdownDescription%"
 				},
-				"pluto.json.extensions": {
+				"plua.json.extensions": {
 					"type": "array",
 					"items": { "type": "string" },
 					"default": [".pluto", ".lua"],
 					"scope": "resource",
-					"markdownDescription": "%pluto.json.extensions.markdownDescription%"
+					"markdownDescription": "%plua.json.extensions.markdownDescription%"
 				},
-				"pluto.json.checkAllPaths": {
+				"plua.json.checkAllPaths": {
 					"type": "boolean",
 					"default": false,
 					"scope": "resource",
-					"markdownDescription": "%pluto.json.checkAllPaths.markdownDescription%"
+					"markdownDescription": "%plua.json.checkAllPaths.markdownDescription%"
 				},
-				"pluto.json.severity": {
+				"plua.json.severity": {
 					"type": "string",
 					"enum": ["warning", "error", "information"],
 					"default": "warning",
-					"markdownDescription": "%pluto.json.severity.markdownDescription%"
+					"markdownDescription": "%plua.json.severity.markdownDescription%"
 				},
-				"pluto.json.notifyNoFolder": {
+				"plua.json.notifyNoFolder": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.json.notifyNoFolder.markdownDescription%"
+					"markdownDescription": "%plua.json.notifyNoFolder.markdownDescription%"
 				},
-				"pluto.lua.checkSyntax": {
+				"plua.lua.checkSyntax": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.lua.checkSyntax.markdownDescription%"
+					"markdownDescription": "%plua.lua.checkSyntax.markdownDescription%"
 				},
-				"pluto.lua.compilerPath": {
+				"plua.lua.compilerPath": {
 					"type": "string",
 					"default": "",
 					"scope": "machine-overridable",
-					"markdownDescription": "%pluto.lua.compilerPath.markdownDescription%"
+					"markdownDescription": "%plua.lua.compilerPath.markdownDescription%"
 				},
-				"pluto.lua.indexFiles": {
+				"plua.compilers.list": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"language": { "type": "string", "enum": ["pluto", "lua"] },
+							"path": { "type": "string" }
+						},
+						"required": ["language", "path"],
+						"additionalProperties": false
+					},
+					"default": [],
+					"scope": "machine",
+					"markdownDescription": "%plua.compilers.list.markdownDescription%"
+				},
+				"plua.lua.indexFiles": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.lua.indexFiles.markdownDescription%"
+					"markdownDescription": "%plua.lua.indexFiles.markdownDescription%"
 				},
-				"pluto.index.enabled": {
+				"plua.index.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "%pluto.index.enabled.description%"
+					"description": "%plua.index.enabled.description%"
 				},
-				"pluto.index.includeLua": {
+				"plua.index.includeLua": {
 					"type": "boolean",
 					"default": true,
-					"markdownDeprecationMessage": "%pluto.index.includeLua.markdownDeprecationMessage%",
-					"markdownDescription": "%pluto.index.includeLua.markdownDescription%"
+					"markdownDeprecationMessage": "%plua.index.includeLua.markdownDeprecationMessage%",
+					"markdownDescription": "%plua.index.includeLua.markdownDescription%"
 				},
-				"pluto.index.exclude": {
+				"plua.index.exclude": {
 					"type": "array",
 					"items": {
 						"type": "string"
 					},
 					"default": [],
 					"scope": "resource",
-					"markdownDeprecationMessage": "%pluto.index.exclude.markdownDeprecationMessage%",
-					"markdownDescription": "%pluto.index.exclude.markdownDescription%"
+					"markdownDeprecationMessage": "%plua.index.exclude.markdownDeprecationMessage%",
+					"markdownDescription": "%plua.index.exclude.markdownDescription%"
 				},
-				"pluto.workspace.useGitignore": {
+				"plua.workspace.useGitignore": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "%pluto.workspace.useGitignore.markdownDescription%"
+					"markdownDescription": "%plua.workspace.useGitignore.markdownDescription%"
 				},
-				"pluto.workspace.ignoreFiles": {
+				"plua.workspace.ignoreFiles": {
 					"type": "array",
 					"items": {
 						"type": "string"
@@ -217,56 +342,56 @@
 						".luaignore"
 					],
 					"scope": "resource",
-					"markdownDescription": "%pluto.workspace.ignoreFiles.markdownDescription%"
+					"markdownDescription": "%plua.workspace.ignoreFiles.markdownDescription%"
 				},
-				"pluto.workspace.exclude": {
+				"plua.workspace.exclude": {
 					"type": "array",
 					"items": {
 						"type": "string"
 					},
 					"default": [],
 					"scope": "resource",
-					"markdownDescription": "%pluto.workspace.exclude.markdownDescription%"
+					"markdownDescription": "%plua.workspace.exclude.markdownDescription%"
 				},
-				"pluto.workspace.useSearchExclude": {
+				"plua.workspace.useSearchExclude": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "%pluto.workspace.useSearchExclude.markdownDescription%"
+					"markdownDescription": "%plua.workspace.useSearchExclude.markdownDescription%"
 				},
-				"pluto.index.maxFiles": {
+				"plua.index.maxFiles": {
 					"type": "integer",
 					"default": 5000,
 					"minimum": 1,
-					"description": "%pluto.index.maxFiles.description%"
+					"description": "%plua.index.maxFiles.description%"
 				},
-				"pluto.completion.keywords": {
+				"plua.completion.keywords": {
 					"type": "boolean",
 					"default": true,
-					"description": "%pluto.completion.keywords.description%"
+					"description": "%plua.completion.keywords.description%"
 				},
-				"pluto.completion.documentWords": {
+				"plua.completion.documentWords": {
 					"type": "boolean",
 					"default": true,
-					"description": "%pluto.completion.documentWords.description%"
+					"description": "%plua.completion.documentWords.description%"
 				},
-				"pluto.completion.autoTriggerTypes": {
+				"plua.completion.autoTriggerTypes": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.completion.autoTriggerTypes.markdownDescription%"
+					"markdownDescription": "%plua.completion.autoTriggerTypes.markdownDescription%"
 				},
-				"pluto.outline.showFunctionBody": {
+				"plua.outline.showFunctionBody": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.outline.showFunctionBody.markdownDescription%"
+					"markdownDescription": "%plua.outline.showFunctionBody.markdownDescription%"
 				},
-				"pluto.outline.maxFileLines": {
+				"plua.outline.maxFileLines": {
 					"type": "integer",
 					"default": 1000,
 					"minimum": 0,
-					"markdownDescription": "%pluto.outline.maxFileLines.markdownDescription%"
+					"markdownDescription": "%plua.outline.maxFileLines.markdownDescription%"
 				},
-				"pluto.outline.calls": {
+				"plua.outline.calls": {
 					"type": "string",
 					"enum": [
 						"none",
@@ -274,44 +399,44 @@
 						"all"
 					],
 					"enumDescriptions": [
-						"%pluto.outline.calls.enumDescriptions.0%",
-						"%pluto.outline.calls.enumDescriptions.1%",
-						"%pluto.outline.calls.enumDescriptions.2%"
+						"%plua.outline.calls.enumDescriptions.0%",
+						"%plua.outline.calls.enumDescriptions.1%",
+						"%plua.outline.calls.enumDescriptions.2%"
 					],
 					"default": "none",
-					"markdownDescription": "%pluto.outline.calls.markdownDescription%"
+					"markdownDescription": "%plua.outline.calls.markdownDescription%"
 				},
-				"pluto.outline.localVariables": {
+				"plua.outline.localVariables": {
 					"type": "boolean",
 					"default": true,
-					"description": "%pluto.outline.localVariables.description%"
+					"description": "%plua.outline.localVariables.description%"
 				},
-				"pluto.outline.loopVariables": {
+				"plua.outline.loopVariables": {
 					"type": "boolean",
 					"default": false,
-					"markdownDescription": "%pluto.outline.loopVariables.markdownDescription%"
+					"markdownDescription": "%plua.outline.loopVariables.markdownDescription%"
 				},
-				"pluto.outline.parameters": {
+				"plua.outline.parameters": {
 					"type": "boolean",
 					"default": false,
-					"description": "%pluto.outline.parameters.description%"
+					"description": "%plua.outline.parameters.description%"
 				},
-				"pluto.outline.anonymousFunctions": {
+				"plua.outline.anonymousFunctions": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.outline.anonymousFunctions.markdownDescription%"
+					"markdownDescription": "%plua.outline.anonymousFunctions.markdownDescription%"
 				},
-				"pluto.outline.fields": {
+				"plua.outline.fields": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.outline.fields.markdownDescription%"
+					"markdownDescription": "%plua.outline.fields.markdownDescription%"
 				},
-				"pluto.outline.showValues": {
+				"plua.outline.showValues": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.outline.showValues.markdownDescription%"
+					"markdownDescription": "%plua.outline.showValues.markdownDescription%"
 				},
-				"pluto.hover.sourcePath": {
+				"plua.hover.sourcePath": {
 					"type": "string",
 					"enum": [
 						"short",
@@ -319,269 +444,269 @@
 						"none"
 					],
 					"enumDescriptions": [
-						"%pluto.hover.sourcePath.enumDescriptions.0%",
-						"%pluto.hover.sourcePath.enumDescriptions.1%",
-						"%pluto.hover.sourcePath.enumDescriptions.2%"
+						"%plua.hover.sourcePath.enumDescriptions.0%",
+						"%plua.hover.sourcePath.enumDescriptions.1%",
+						"%plua.hover.sourcePath.enumDescriptions.2%"
 					],
 					"default": "short",
-					"markdownDescription": "%pluto.hover.sourcePath.markdownDescription%"
+					"markdownDescription": "%plua.hover.sourcePath.markdownDescription%"
 				},
-				"pluto.hover.showFunctionBody": {
+				"plua.hover.showFunctionBody": {
 					"type": "boolean",
 					"default": true,
-					"description": "%pluto.hover.showFunctionBody.description%"
+					"description": "%plua.hover.showFunctionBody.description%"
 				},
-				"pluto.hover.forPreview": {
+				"plua.hover.forPreview": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.hover.forPreview.markdownDescription%"
+					"markdownDescription": "%plua.hover.forPreview.markdownDescription%"
 				},
-				"pluto.hover.maxBodyLines": {
+				"plua.hover.maxBodyLines": {
 					"type": "integer",
 					"default": 25,
 					"minimum": 0,
-					"markdownDescription": "%pluto.hover.maxBodyLines.markdownDescription%"
+					"markdownDescription": "%plua.hover.maxBodyLines.markdownDescription%"
 				},
-				"pluto.hover.maxDeclarations": {
+				"plua.hover.maxDeclarations": {
 					"type": "integer",
 					"default": 8,
 					"minimum": 1,
-					"description": "%pluto.hover.maxDeclarations.description%"
+					"description": "%plua.hover.maxDeclarations.description%"
 				},
-				"pluto.highlight.paramNoDefault": {
+				"plua.highlight.paramNoDefault": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.highlight.paramNoDefault.markdownDescription%"
+					"markdownDescription": "%plua.highlight.paramNoDefault.markdownDescription%"
 				},
-				"pluto.highlight.paramNoDefaultColor": {
+				"plua.highlight.paramNoDefaultColor": {
 					"type": "string",
 					"format": "color-hex",
 					"default": "#E5C07B",
-					"markdownDescription": "%pluto.highlight.paramNoDefaultColor.markdownDescription%"
+					"markdownDescription": "%plua.highlight.paramNoDefaultColor.markdownDescription%"
 				},
-				"pluto.highlight.paramNoDefaultLightColor": {
+				"plua.highlight.paramNoDefaultLightColor": {
 					"type": "string",
 					"format": "color-hex",
 					"default": "#BF8803",
-					"markdownDescription": "%pluto.highlight.paramNoDefaultLightColor.markdownDescription%"
+					"markdownDescription": "%plua.highlight.paramNoDefaultLightColor.markdownDescription%"
 				},
-				"pluto.completion.defaultValues": {
+				"plua.completion.defaultValues": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.completion.defaultValues.markdownDescription%"
+					"markdownDescription": "%plua.completion.defaultValues.markdownDescription%"
 				},
-				"pluto.completion.defaultValuesDelayMs": {
+				"plua.completion.defaultValuesDelayMs": {
 					"type": "integer",
 					"default": 800,
 					"minimum": 0,
 					"maximum": 10000,
-					"markdownDescription": "%pluto.completion.defaultValuesDelayMs.markdownDescription%"
+					"markdownDescription": "%plua.completion.defaultValuesDelayMs.markdownDescription%"
 				},
-				"pluto.highlight.paramNoType": {
+				"plua.highlight.paramNoType": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.highlight.paramNoType.markdownDescription%"
+					"markdownDescription": "%plua.highlight.paramNoType.markdownDescription%"
 				},
-				"pluto.highlight.caseNoColon": {
+				"plua.highlight.caseNoColon": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.highlight.caseNoColon.markdownDescription%"
+					"markdownDescription": "%plua.highlight.caseNoColon.markdownDescription%"
 				},
-				"pluto.highlight.nullableTypes": {
+				"plua.highlight.nullableTypes": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.highlight.nullableTypes.markdownDescription%"
+					"markdownDescription": "%plua.highlight.nullableTypes.markdownDescription%"
 				},
-				"pluto.highlight.nullableTypeColor": {
+				"plua.highlight.nullableTypeColor": {
 					"type": "string",
 					"format": "color-hex",
 					"default": "#FFFFFF",
-					"markdownDescription": "%pluto.highlight.nullableTypeColor.markdownDescription%"
+					"markdownDescription": "%plua.highlight.nullableTypeColor.markdownDescription%"
 				},
-				"pluto.highlight.nullableTypeLightColor": {
+				"plua.highlight.nullableTypeLightColor": {
 					"type": "string",
 					"format": "color-hex",
 					"default": "#000000",
-					"markdownDescription": "%pluto.highlight.nullableTypeLightColor.markdownDescription%"
+					"markdownDescription": "%plua.highlight.nullableTypeLightColor.markdownDescription%"
 				},
-				"pluto.highlight.applyColors": {
+				"plua.highlight.applyColors": {
 					"type": "boolean",
 					"default": false,
-					"markdownDescription": "%pluto.highlight.applyColors.markdownDescription%"
+					"markdownDescription": "%plua.highlight.applyColors.markdownDescription%"
 				},
-				"pluto.highlight.colors": {
+				"plua.highlight.colors": {
 					"type": "object",
 					"default": {},
-					"markdownDescription": "%pluto.highlight.colors.markdownDescription%",
+					"markdownDescription": "%plua.highlight.colors.markdownDescription%",
 					"additionalProperties": false,
 					"properties": {
 						"functionName": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.functionName%",
+							"markdownDescription": "%plua.highlight.colors.functionName%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"functionKeyword": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.functionKeyword%",
+							"markdownDescription": "%plua.highlight.colors.functionKeyword%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"parameter": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.parameter%",
+							"markdownDescription": "%plua.highlight.colors.parameter%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"type": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.type%",
+							"markdownDescription": "%plua.highlight.colors.type%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"returnType": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.returnType%",
+							"markdownDescription": "%plua.highlight.colors.returnType%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"typeColon": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.typeColon%",
+							"markdownDescription": "%plua.highlight.colors.typeColon%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"keyword": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.keyword%",
+							"markdownDescription": "%plua.highlight.colors.keyword%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"operator": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.operator%",
+							"markdownDescription": "%plua.highlight.colors.operator%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"constant": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.constant%",
+							"markdownDescription": "%plua.highlight.colors.constant%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"modifier": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.modifier%",
+							"markdownDescription": "%plua.highlight.colors.modifier%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						},
 						"accessor": {
 							"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
-							"markdownDescription": "%pluto.highlight.colors.accessor%",
+							"markdownDescription": "%plua.highlight.colors.accessor%",
 							"properties": {
-								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+								"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+								"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+								"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+								"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 							}
 						}
 					}
 				},
-				"pluto.highlight.tableBracketColors": {
+				"plua.highlight.tableBracketColors": {
 					"type": "array",
 					"default": [],
 					"items": {
 						"anyOf": [{ "type": "string", "format": "color-hex" }, { "type": "string", "pattern": "^\\s*#[0-9a-fA-F]{3,8}(\\s+(bold|italic|underline|strikethrough|normal|none))*\\s*$" }, { "type": "object" }],
 						"properties": {
-							"color": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.color%" },
-							"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.darkColor%" },
-							"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%pluto.highlight.style.lightColor%" },
-							"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%pluto.highlight.style.fontStyle%" }
+							"color": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.color%" },
+							"darkColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.darkColor%" },
+							"lightColor": { "type": "string", "format": "color-hex", "markdownDescription": "%plua.highlight.style.lightColor%" },
+							"fontStyle": { "type": "string", "enum": ["normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"], "markdownDescription": "%plua.highlight.style.fontStyle%" }
 						}
 					},
-					"markdownDescription": "%pluto.highlight.tableBracketColors.markdownDescription%"
+					"markdownDescription": "%plua.highlight.tableBracketColors.markdownDescription%"
 				},
-				"pluto.format.newLineAfterComma": {
+				"plua.format.newLineAfterComma": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "%pluto.format.newLineAfterComma.markdownDescription%"
+					"markdownDescription": "%plua.format.newLineAfterComma.markdownDescription%"
 				},
-				"pluto.format.newLineAfterCommaDelayMs": {
+				"plua.format.newLineAfterCommaDelayMs": {
 					"type": "integer",
 					"default": 700,
 					"minimum": 0,
 					"maximum": 10000,
-					"markdownDescription": "%pluto.format.newLineAfterCommaDelayMs.markdownDescription%"
+					"markdownDescription": "%plua.format.newLineAfterCommaDelayMs.markdownDescription%"
 				},
-				"pluto.format.ifBlockWord": {
+				"plua.format.ifBlockWord": {
 					"type": "string",
 					"enum": ["auto", "then", "do", "off"],
 					"default": "auto",
 					"enumDescriptions": [
-						"%pluto.format.ifBlockWord.auto%",
-						"%pluto.format.ifBlockWord.then%",
-						"%pluto.format.ifBlockWord.do%",
-						"%pluto.format.ifBlockWord.off%"
+						"%plua.format.ifBlockWord.auto%",
+						"%plua.format.ifBlockWord.then%",
+						"%plua.format.ifBlockWord.do%",
+						"%plua.format.ifBlockWord.off%"
 					],
-					"markdownDescription": "%pluto.format.ifBlockWord.markdownDescription%"
+					"markdownDescription": "%plua.format.ifBlockWord.markdownDescription%"
 				},
-				"pluto.format.suggestFor": {
+				"plua.format.suggestFor": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestFor.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestFor.markdownDescription%"
 				},
-				"pluto.format.nameStyle": {
+				"plua.format.nameStyle": {
 					"type": "string",
 					"enum": ["short", "full"],
 					"default": "short",
 					"enumDescriptions": [
-						"%pluto.format.nameStyle.short%",
-						"%pluto.format.nameStyle.full%"
+						"%plua.format.nameStyle.short%",
+						"%plua.format.nameStyle.full%"
 					],
-					"markdownDescription": "%pluto.format.nameStyle.markdownDescription%"
+					"markdownDescription": "%plua.format.nameStyle.markdownDescription%"
 				},
-				"pluto.format.names": {
+				"plua.format.names": {
 					"type": "object",
 					"default": {},
 					"additionalProperties": false,
@@ -591,135 +716,184 @@
 						"value": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
 						"table": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
 					},
-					"markdownDescription": "%pluto.format.names.markdownDescription%"
+					"markdownDescription": "%plua.format.names.markdownDescription%"
 				},
-				"pluto.format.suggestParamType": {
+				"plua.format.suggestParamType": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestParamType.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestParamType.markdownDescription%"
 				},
-				"pluto.format.suggestParamTypeDelayMs": {
+				"plua.format.suggestParamTypeDelayMs": {
 					"type": "integer",
 					"default": 600,
 					"minimum": 0,
 					"maximum": 10000,
-					"markdownDescription": "%pluto.format.suggestParamTypeDelayMs.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestParamTypeDelayMs.markdownDescription%"
 				},
-				"pluto.format.suggestReturnType": {
+				"plua.format.suggestReturnType": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestReturnType.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestReturnType.markdownDescription%"
 				},
-				"pluto.format.suggestReturnValue": {
+				"plua.format.suggestReturnValue": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestReturnValue.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestReturnValue.markdownDescription%"
 				},
-				"pluto.format.suggestCaseColon": {
+				"plua.format.suggestCaseColon": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestCaseColon.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestCaseColon.markdownDescription%"
 				},
-				"pluto.format.suggestCaseBreak": {
+				"plua.format.suggestCaseBreak": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestCaseBreak.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestCaseBreak.markdownDescription%"
 				},
-				"pluto.format.suggestCaseWords": {
+				"plua.format.suggestCaseWords": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestCaseWords.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestCaseWords.markdownDescription%"
 				},
-				"pluto.format.suggestConstructor": {
+				"plua.format.suggestConstructor": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestConstructor.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestConstructor.markdownDescription%"
 				},
-				"pluto.format.suggestParens": {
+				"plua.format.suggestParens": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestParens.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestParens.markdownDescription%"
 				},
-				"pluto.format.suggestTableKeyAssign": {
+				"plua.format.suggestTableKeyAssign": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestTableKeyAssign.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestTableKeyAssign.markdownDescription%"
 				},
-				"pluto.format.suggestBlockWords": {
+				"plua.format.suggestBlockWords": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.format.suggestBlockWords.markdownDescription%"
+					"markdownDescription": "%plua.format.suggestBlockWords.markdownDescription%"
 				},
-				"pluto.format.fixMismatchedBrackets": {
+				"plua.format.fixMismatchedBrackets": {
 					"type": "string",
 					"enum": ["off", "suggest", "auto"],
 					"default": "suggest",
 					"enumDescriptions": [
-						"%pluto.format.fixMismatchedBrackets.off%",
-						"%pluto.format.fixMismatchedBrackets.suggest%",
-						"%pluto.format.fixMismatchedBrackets.auto%"
+						"%plua.format.fixMismatchedBrackets.off%",
+						"%plua.format.fixMismatchedBrackets.suggest%",
+						"%plua.format.fixMismatchedBrackets.auto%"
 					],
-					"markdownDescription": "%pluto.format.fixMismatchedBrackets.markdownDescription%"
+					"markdownDescription": "%plua.format.fixMismatchedBrackets.markdownDescription%"
 				},
-				"pluto.format.fixMismatchedBracketsDelayMs": {
+				"plua.format.fixMismatchedBracketsDelayMs": {
 					"type": "integer",
 					"default": 1200,
 					"minimum": 0,
 					"maximum": 10000,
-					"markdownDescription": "%pluto.format.fixMismatchedBracketsDelayMs.markdownDescription%"
+					"markdownDescription": "%plua.format.fixMismatchedBracketsDelayMs.markdownDescription%"
 				},
-				"pluto.diagnostics.returnTypes": {
+				"plua.diagnostics.returnTypes": {
 					"type": "string",
 					"enum": ["warning", "error", "off"],
 					"default": "warning",
-					"markdownDescription": "%pluto.diagnostics.returnTypes.markdownDescription%"
+					"markdownDescription": "%plua.diagnostics.returnTypes.markdownDescription%"
 				},
-				"pluto.diagnostics.caseFallthrough": {
+				"plua.diagnostics.caseFallthrough": {
 					"type": "string",
 					"enum": ["off", "hint"],
 					"default": "off",
-					"markdownDescription": "%pluto.diagnostics.caseFallthrough.markdownDescription%"
+					"markdownDescription": "%plua.diagnostics.caseFallthrough.markdownDescription%"
 				},
-				"pluto.diagnostics.duplicateParams": {
+				"plua.diagnostics.duplicateParams": {
 					"type": "string",
 					"enum": ["warning", "error", "off"],
 					"default": "warning",
-					"markdownDescription": "%pluto.diagnostics.duplicateParams.markdownDescription%"
+					"markdownDescription": "%plua.diagnostics.duplicateParams.markdownDescription%"
 				},
-				"pluto.format.multilineParams": {
+				"plua.format.multilineParams": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "%pluto.format.multilineParams.markdownDescription%"
+					"markdownDescription": "%plua.format.multilineParams.markdownDescription%"
 				},
-				"pluto.format.multilineTables": {
+				"plua.format.multilineTables": {
 					"type": "boolean",
 					"default": true,
 					"scope": "resource",
-					"markdownDescription": "%pluto.format.multilineTables.markdownDescription%"
+					"markdownDescription": "%plua.format.multilineTables.markdownDescription%"
 				},
-				"pluto.autoCloseBlocks": {
+				"plua.autoCloseBlocks": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.autoCloseBlocks.markdownDescription%"
+					"markdownDescription": "%plua.autoCloseBlocks.markdownDescription%"
 				},
-				"pluto.diagnostics.enable": {
+				"plua.quickDeleteEnd": {
 					"type": "boolean",
 					"default": true,
-					"markdownDescription": "%pluto.diagnostics.enable.markdownDescription%"
+					"markdownDescription": "%plua.quickDeleteEnd.markdownDescription%"
 				},
-				"pluto.diagnostics.compilerPath": {
+				"plua.quickDeleteEndDoubleMs": {
+					"type": "number",
+					"default": 1500,
+					"minimum": 0,
+					"maximum": 5000,
+					"markdownDescription": "%plua.quickDeleteEndDoubleMs.markdownDescription%"
+				},
+				"plua.shiftBackspaceDeleteFromBelow.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.shiftBackspaceDeleteFromBelow.enabled.markdownDescription%"
+				},
+				"plua.shiftDeleteFromNextLine": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.shiftDeleteFromNextLine.markdownDescription%"
+				},
+				"plua.renameClassPeek": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.renameClassPeek.markdownDescription%"
+				},
+				"plua.heirsPeek": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.heirsPeek.markdownDescription%"
+				},
+				"plua.heirsPeekDelayMs": {
+					"type": "number",
+					"default": 400,
+					"minimum": 0,
+					"maximum": 3000,
+					"markdownDescription": "%plua.heirsPeekDelayMs.markdownDescription%"
+				},
+				"plua.backspaceRemovesBlankLine": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.backspaceRemovesBlankLine.markdownDescription%"
+				},
+				"plua.shiftDeleteByPieces": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.shiftDeleteByPieces.markdownDescription%"
+				},
+				"plua.diagnostics.enable": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.diagnostics.enable.markdownDescription%"
+				},
+				"plua.diagnostics.compilerPath": {
 					"type": "string",
 					"default": "",
 					"scope": "machine-overridable",
-					"markdownDescription": "%pluto.diagnostics.compilerPath.markdownDescription%"
+					"markdownDescription": "%plua.diagnostics.compilerPath.markdownDescription%"
 				},
-				"pluto.diagnostics.debounceMs": {
+				"plua.diagnostics.debounceMs": {
 					"type": "number",
 					"default": 400,
 					"minimum": 0,
 					"maximum": 10000,
-					"description": "%pluto.diagnostics.debounceMs.description%"
+					"description": "%plua.diagnostics.debounceMs.description%"
 				}
 			}
 		},
@@ -753,7 +927,9 @@
 		"workspaceContains:**/*.pluto",
 		"onCommand:plua.showDeclarations",
 		"onCommand:plua.peekCode",
-		"onCommand:plua.openSettings"
+		"onCommand:plua.openSettings",
+		"onCommand:plua.renameClass",
+		"onCommand:plua.convertLayout"
 	],
 	"devDependencies": {
 		"vscode-oniguruma": "^2.0.1",
@@ -764,7 +940,7 @@
 			"supported": "limited",
 			"description": "In untrusted workspaces no Pluto compiler is run; built-in checks still work.",
 			"restrictedConfigurations": [
-				"pluto.diagnostics.compilerPath"
+				"plua.diagnostics.compilerPath"
 			]
 		}
 	}

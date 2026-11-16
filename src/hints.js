@@ -828,7 +828,7 @@ function suggestionsAt(text, offset, options, extra)
 	}
 	if (options.caseColon && caseColonAt(text, offset))
 	{
-		out.push({ kind: "case-colon", insert: ":", paused: true });
+		out.push({ kind: "case-colon", insert: ":", paused: false });
 	}
 	if (options.returnValue)
 	{

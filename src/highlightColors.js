@@ -6,7 +6,7 @@
 
 const RULE_PREFIX = "Pluto: ";
 
-// Setting key (pluto.highlight.colors.<key>) -> grammar scopes it colors.
+// Setting key (plua.highlight.colors.<key>) -> grammar scopes it colors.
 const CATEGORIES = {
 	functionName: ["entity.name.function.pluto"],
 	functionKeyword: ["storage.type.function.pluto", "storage.type.function.arrow.pluto"],
@@ -124,8 +124,8 @@ function parseStyle(value, kind)
 
 /**
  * What is wrong in the settings: unknown keys, values that are not colors, fully transparent colors.
- * @param {Record<string, unknown>|undefined} colors Value of `pluto.highlight.colors`.
- * @param {unknown[]|undefined} tableBrackets Value of `pluto.highlight.tableBracketColors`.
+ * @param {Record<string, unknown>|undefined} colors Value of `plua.highlight.colors`.
+ * @param {unknown[]|undefined} tableBrackets Value of `plua.highlight.tableBracketColors`.
  * @returns {{ name: string, value: string, problem: "invalid"|"transparent"|"unknownKey" }[]}
  */
 function findProblems(colors, tableBrackets)
@@ -161,8 +161,8 @@ function findProblems(colors, tableBrackets)
 
 /**
  * The TextMate rules for the settings.
- * @param {Record<string, unknown>|undefined} colors Value of `pluto.highlight.colors`.
- * @param {unknown[]|undefined} tableBrackets Value of `pluto.highlight.tableBracketColors`.
+ * @param {Record<string, unknown>|undefined} colors Value of `plua.highlight.colors`.
+ * @param {unknown[]|undefined} tableBrackets Value of `plua.highlight.tableBracketColors`.
  * @param {"dark"|"light"} [kind] Kind of the active theme; default dark.
  * @returns {{ name: string, scope: string[], settings: object }[]}
  */

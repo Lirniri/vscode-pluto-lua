@@ -16,6 +16,10 @@ const { registerTypeAutoTrigger, registerNullableHighlight } = require("./typeEd
 const { registerMultilineFormat } = require("./multilineEditor");
 const { registerDefaultValueHint } = require("./defaultValuesEditor");
 const { registerAutoFormat } = require("./autoFormatEditor");
+const { registerLayoutFixer } = require("./layoutFixerEditor");
+const { registerAutoIndent } = require("./autoIndentEditor");
+const { registerHeirsPeek } = require("./heirsPeekEditor");
+const { registerRenameClass } = require("./renameClassEditor");
 const { registerSettingsPanel } = require("./settingsPanel");
 const { buildRules, mergeRules, findProblems, CATEGORIES } = require("./highlightColors");
 const { t, resolveLanguage, setLanguage } = require("./i18n");
@@ -26,7 +30,7 @@ const LUA_SELECTOR = [{ language: "lua" }, { pattern: "**/*.lua" }];
 
 /**
  * Document selector the language providers are registered for.
- * @param {boolean} luaEnabled `pluto.lua.enable`
+ * @param {boolean} luaEnabled `plua.lua.enable`
  */
 function selectorFor(luaEnabled)
 {
@@ -76,16 +80,16 @@ class LanguageService
 		return /\.lua$/i.test(uri.path);
 	}
 
-	/** Whether the language features (providers, diagnostics) are on for `.lua` files: `pluto.lua.enable`. */
+	/** Whether the language features (providers, diagnostics) are on for `.lua` files: `plua.lua.enable`. */
 	luaEnabled()
 	{
-		return vscode.workspace.getConfiguration("pluto").get("lua.enable", true) !== false;
+		return vscode.workspace.getConfiguration("plua").get("lua.enable", true) !== false;
 	}
 
-	/** Whether `.lua` files are read into the index: `pluto.lua.indexFiles` (and the older `pluto.index.includeLua`). */
+	/** Whether `.lua` files are read into the index: `plua.lua.indexFiles` (and the older `plua.index.includeLua`). */
 	_luaIndexed()
 	{
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		return config.get("lua.indexFiles", true) !== false && config.get("index.includeLua", true) !== false;
 	}
 
@@ -173,7 +177,7 @@ class LanguageService
 	{
 		const incremental = !!(options && options.incremental);
 		const scanId = ++this._scanId;
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		await this.filter.reload();
 		if (scanId != this._scanId)
 		{
@@ -265,6 +269,7 @@ class LanguageService
 
 // Lines after which pressing Enter should produce a matching `end` (or `until`).
 const BLOCK_OPENER = /^\s*(?:(?:local|export|static|public|private|protected)\s+)*(?:(?:function\b.*\)\s*(?::\s*[^=]+)?)|(?:(?:if|elseif)\b.*\b(?:then|do))|(?:(?:for|while|switch|pluto_switch)\b.*\bdo)|(?:do)|(?:(?:class|pluto_class)\s+[\w.]+(?:\s+extends\s+[\w.]+)?)|(?:(?:enum|pluto_enum)\b.*\bbegin)|(?:try|pluto_try)|(?:repeat))\s*$/;
+const PLUTO_ONLY_OPENER = /^\s*(?:(?:local|export|static|public|private|protected)\s+)*(?:switch|pluto_switch|class|pluto_class|enum|pluto_enum|try|pluto_try)\b|^\s*(?:export|static|public|private|protected)\s/;
 const ASSIGNED_OPENER = /(?:=|\(|,|\breturn)\s*(?:function\s*\([^)]*\)\s*(?::\s*[^=]+)?|class(?:\s+extends\s+[\w.]+)?)\s*$|->\s*do\s*$|\bthen\s*$|\bdo\s*$/;
 
 /**
@@ -304,7 +309,7 @@ function stripComment(line)
  * @param {string} line The line that was just completed.
  * @returns {"end"|"until "|null}
  */
-function closerFor(line)
+function closerFor(line, lua)
 {
 	const code = stripComment(line).replace(/\s+$/, "");
 	if (!code || lineContext(code).kind != "code")
@@ -323,6 +328,10 @@ function closerFor(line)
 	{
 		return null; // continues an existing block / preprocessor directive
 	}
+	if (lua && (PLUTO_ONLY_OPENER.test(code) || /->\s*do$/.test(code) || /^\s*(?:local\s+)?(?:else)?if\b.*\bdo$/.test(code) || /(?:=|\(|,|\breturn)\s*class\b/.test(code)))
+	{
+		return null; // words and forms that only Pluto has
+	}
 	return BLOCK_OPENER.test(code) || ASSIGNED_OPENER.test(code) ? "end" : null;
 }
 
@@ -336,7 +345,7 @@ function registerAutoClose(context, service)
 	context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(function (event)
 	{
 		const document = event.document;
-		if (busy || document.languageId != "pluto" || event.contentChanges.length != 1)
+		if (busy || !(document.languageId == "pluto" || (document.languageId == "lua" && service.luaEnabled())) || event.contentChanges.length != 1)
 		{
 			return;
 		}
@@ -355,7 +364,7 @@ function registerAutoClose(context, service)
 		{
 			return;
 		}
-		if (!vscode.workspace.getConfiguration("pluto", document.uri).get("autoCloseBlocks", true))
+		if (!vscode.workspace.getConfiguration("plua", document.uri).get("autoCloseBlocks", true))
 		{
 			return;
 		}
@@ -366,7 +375,7 @@ function registerAutoClose(context, service)
 		{
 			return;
 		}
-		const closer = closerFor(openerText);
+		const closer = closerFor(openerText, document.languageId == "lua");
 		if (!closer || openerLine + 1 >= document.lineCount)
 		{
 			return;
@@ -378,7 +387,7 @@ function registerAutoClose(context, service)
 		}
 		// Only add a closer if the document is actually missing one.
 		const record = service.getRecord(document);
-		if (closer == "end" ? record.unclosed == 0 : !hasUnclosedRepeat(record, openerLine))
+		if (closer == "end" ? !needsEnd(record, openerLine, (n) => document.lineAt(n).text) : !hasUnclosedRepeat(record, openerLine))
 		{
 			return;
 		}
@@ -438,6 +447,327 @@ function registerAutoClose(context, service)
 	}));
 }
 
+/**
+ * Two presses of Backspace / Delete in a row on a line that is nothing but `end` remove the line. The first press is
+ * the plain key (it deletes a letter, or the indentation); the second one, right after it, takes what is left.
+ * @param {string} lineText The text of the line the cursor is on.
+ * @param {{ uri: string, line: number, at: number }|null} pending What the first press left behind.
+ * @param {{ uri: string, line: number, now: number }} here
+ * @param {number} windowMs How long after the first press the second one still counts.
+ * @returns {{ action: "remove"|"arm"|"plain", pending: { uri: string, line: number, at: number }|null }}
+ *   `remove`: the line goes; `arm`: the plain key, remember the press; `plain`: the plain key.
+ */
+function quickDeleteDecision(lineText, pending, here, windowMs)
+{
+	// what is left of `end` after a letter or two were deleted counts for the second press (Delete takes them from the front)
+	if (pending && pending.uri == here.uri && pending.line == here.line && here.now - pending.at <= windowMs
+		&& /^[ \t]*(?:end|en|nd|e|n|d)?[ \t]*$/.test(lineText))
+	{
+		return { action: "remove", pending: null };
+	}
+	if (/^[ \t]*end[ \t]*$/.test(lineText))
+	{
+		return { action: "arm", pending: { uri: here.uri, line: here.line, at: here.now } };
+	}
+	return { action: "plain", pending: null };
+}
+
+/**
+ * Shift + Backspace / Delete on an empty line (blank, or with indentation) takes a piece of the nearest line below that
+ * has text: from its end with Backspace, from its start with Delete (a piece as in `pieceRange`). `end` is one piece
+ * like any other, `function greet(): string` goes as `string`, `:`, `)`, `(`, `greet`, `function`. A line that has
+ * nothing left goes with its line break; the cursor stays on its empty line. The spaces and tabs at the edge of that line go
+ * with the piece next to them.
+ * @param {(n: number) => string} textOf The text of line `n`.
+ * @param {number} lineCount
+ * @param {number} line The line of the cursor.
+ * @param {boolean} forward true for Delete, false for Backspace.
+ * @returns {{ line: number, from: number, to: number, wholeLine: boolean }|null} What to delete, null when the cursor
+ *   line is not empty or no line with text is below it.
+ */
+function pieceBelow(textOf, lineCount, line, forward)
+{
+	if (textOf(line).trim() != "")
+	{
+		return null;
+	}
+	let below = line + 1;
+	while (below < lineCount && textOf(below).trim() == "")
+	{
+		++below;
+	}
+	if (below >= lineCount)
+	{
+		return null;
+	}
+	const text = textOf(below);
+	let range = pieceRange(text, forward ? 0 : text.length, forward);
+	if (!range)
+	{
+		return null;
+	}
+	// The spaces and tabs at the edge of that line (its indentation, or what trails it) go with the piece next to
+	// them, not in a press of their own.
+	if (/^[ \t]+$/.test(text.slice(range.from, range.to)))
+	{
+		const more = pieceRange(text, forward ? range.to : range.from, forward);
+		if (more)
+		{
+			range = forward ? { from: range.from, to: more.to } : { from: more.from, to: range.to };
+		}
+	}
+	return { line: below, from: range.from, to: range.to, wholeLine: (text.slice(0, range.from) + text.slice(range.to)).trim() == "" };
+}
+
+/**
+ * What Shift + Backspace / Delete takes in one press: a piece of the line, not a letter and not a whole word with its
+ * neighbours. A piece is a run of spaces and tabs (a piece of its own), a run of letters, digits and `_` (`name`), or
+ * a run of one other character (`.`, `..`, `(`). `self.name|` goes in three presses: `name`, `.`, `self`;
+ * `foo    |` in two: the spaces, then `foo`. A character outside of the BMP (an emoji) is never cut in halves.
+ * @param {string} lineText
+ * @param {number} character The column of the cursor.
+ * @param {boolean} forward true for Delete, false for Backspace.
+ * @returns {{ from: number, to: number }|null} The columns to delete, null at the edge of the line (the plain key joins lines).
+ */
+function pieceRange(lineText, character, forward)
+{
+	const space = (c) => c == " " || c == "\t";
+	const word = (c) => /[\p{L}\p{N}_]/u.test(c);
+	const inside = (i) => forward ? i < lineText.length : i > 0;
+	// the character next to the cursor in the direction of the key: [the character, its length in code units]
+	const next = function (i)
+	{
+		if (forward)
+		{
+			const cp = lineText.codePointAt(i);
+			return [String.fromCodePoint(cp), cp > 0xFFFF ? 2 : 1];
+		}
+		const low = lineText.charCodeAt(i - 1);
+		const high = i >= 2 ? lineText.charCodeAt(i - 2) : 0;
+		return low >= 0xDC00 && low <= 0xDFFF && high >= 0xD800 && high <= 0xDBFF ? [lineText.slice(i - 2, i), 2] : [lineText[i - 1], 1];
+	};
+	if (!inside(character))
+	{
+		return null;
+	}
+	const first = next(character)[0];
+	const same = space(first) ? space : word(first) ? word : (c) => c == first;
+	let i = character;
+	while (inside(i))
+	{
+		const [c, length] = next(i);
+		if (!same(c))
+		{
+			break;
+		}
+		i += forward ? length : -length;
+	}
+	return forward ? { from: character, to: i } : { from: i, to: character };
+}
+
+/** Backspace and Delete in a Pluto file (see `quickDeleteDecision`, `pieceBelow`, `pieceRange`); in all the other cases the plain keys. */
+function registerSmartBackspace(context)
+{
+	let pending = null;
+	const settings = (document) => vscode.workspace.getConfiguration("plua", document.uri);
+	const single = (editor) => editor && editor.selections.length == 1 && editor.selection.isEmpty;
+
+	// The line goes whole (the indentation with it) and the cursor goes up to the end of the line above.
+	// On the first line of the file only the text goes.
+	const removeLine = function (editor, pos)
+	{
+		const up = pos.line > 0;
+		const line = editor.document.lineAt(pos.line);
+		const at = up ? editor.document.lineAt(pos.line - 1).range.end : line.range.start;
+		return editor.edit(function (builder)
+		{
+			builder.delete(up ? new vscode.Range(at, line.range.end) : line.range);
+		}).then(function ()
+		{
+			editor.selection = new vscode.Selection(at, at);
+		});
+	};
+
+	// Backspace and Delete: two presses in a row on a lone `end` remove its line; Backspace on a line that is nothing
+	// but indentation removes the line (see `quickDeleteDecision`).
+	const twice = function (command, plain, forward)
+	{
+		context.subscriptions.push(vscode.commands.registerCommand(command, function ()
+		{
+			const editor = vscode.window.activeTextEditor;
+			if (single(editor))
+			{
+				const config = settings(editor.document);
+				const pos = editor.selection.active;
+				const text = editor.document.lineAt(pos.line).text;
+				if (config.get("quickDeleteEnd", true))
+				{
+					const windowMs = Math.max(0, Number(config.get("quickDeleteEndDoubleMs", 1500)) || 0);
+					const step = quickDeleteDecision(text, pending, { uri: editor.document.uri.toString(), line: pos.line, now: Date.now() }, windowMs);
+					pending = step.pending;
+					if (step.action == "remove")
+					{
+						return removeLine(editor, pos);
+					}
+				}
+				else
+				{
+					pending = null;
+				}
+				if (!forward && pos.line > 0 && pos.character > 0 && /^[ \t]+$/.test(text) && config.get("backspaceRemovesBlankLine", true))
+				{
+					pending = null;
+					return removeLine(editor, pos);
+				}
+			}
+			else
+			{
+				pending = null;
+			}
+			return vscode.commands.executeCommand(plain);
+		}));
+	};
+	twice("plua.smartBackspace", "deleteLeft", false);
+	twice("plua.smartDelete", "deleteRight", true);
+
+	// Shift + Backspace / Delete: one piece of the line per press (see `pieceRange`). On an empty line (blank, or with
+	// indentation) the spaces and tabs next to the cursor go first, and when there are none the pieces come from the
+	// nearest line with text below it (see `pieceBelow`).
+	const shifted = function (command, plain, forward)
+	{
+		context.subscriptions.push(vscode.commands.registerCommand(command, function ()
+		{
+			const editor = vscode.window.activeTextEditor;
+			if (single(editor))
+			{
+				const doc = editor.document;
+				const config = settings(doc);
+				const pos = editor.selection.active;
+				const text = doc.lineAt(pos.line).text;
+				const own = config.get("shiftDeleteByPieces", true) ? pieceRange(text, pos.character, forward) : null;
+				const blank = text.trim() == "";
+				const ownIsSpace = !!own && /^[ \t]+$/.test(text.slice(own.from, own.to));
+				const below = blank && !ownIsSpace && config.get("shiftDeleteFromNextLine", true)
+					? pieceBelow((n) => doc.lineAt(n).text, doc.lineCount, pos.line, forward) : null;
+				if (below)
+				{
+					const target = doc.lineAt(below.line);
+					return editor.edit(function (builder)
+					{
+						// a line with nothing left goes whole, the empty lines and the cursor stay
+						builder.delete(below.wholeLine
+							? new vscode.Range(doc.lineAt(below.line - 1).range.end, target.range.end)
+							: new vscode.Range(below.line, below.from, below.line, below.to));
+					});
+				}
+				if (own)
+				{
+					return editor.edit(function (builder)
+					{
+						builder.delete(new vscode.Range(pos.line, own.from, pos.line, own.to));
+					}).then(function ()
+					{
+						const at = new vscode.Position(pos.line, own.from);
+						editor.selection = new vscode.Selection(at, at);
+					});
+				}
+			}
+			return vscode.commands.executeCommand(plain);
+		}));
+	};
+	shifted("plua.shiftDelete", "deleteRight", true);
+
+	// Shift + Backspace deletes from below, one token per press (see `belowTokenRange`).
+	context.subscriptions.push(vscode.commands.registerCommand("plua.deleteFromBelow", function ()
+	{
+		const editor = vscode.window.activeTextEditor;
+		const lang = editor && editor.document.languageId;
+		if (!editor || !(lang == "pluto" || (lang == "lua" && vscode.workspace.getConfiguration("plua").get("lua.enable", true) !== false)) || !settings(editor.document).get("shiftBackspaceDeleteFromBelow.enabled", true))
+		{
+			return vscode.commands.executeCommand("deleteLeft");
+		}
+		const doc = editor.document;
+		const textOf = (n) => doc.lineAt(n).text;
+		const ranges = [];
+		for (const selection of editor.selections)
+		{
+			const range = selection.isEmpty
+				? belowTokenRange(textOf, doc.lineCount, selection.active.line, selection.active.character)
+				: { from: { line: selection.start.line, character: selection.start.character }, to: { line: selection.end.line, character: selection.end.character } };
+			if (range)
+			{
+				ranges.push(range);
+			}
+		}
+		if (ranges.length == 0)
+		{
+			return undefined;
+		}
+		return editor.edit(function (builder)
+		{
+			for (const r of mergeLineRanges(ranges))
+			{
+				builder.delete(new vscode.Range(r.from.line, r.from.character, r.to.line, r.to.character));
+			}
+		});
+	}));
+}
+
+/**
+ * The range Shift + Backspace deletes for an empty selection at `character` of `line`, one token per press.
+ * Code to the right of the cursor on its own line: the nearest token there (a word, or one punctuation character,
+ * with the spaces in front of it). Otherwise the line below: with code on it the last token at its end (a whole
+ * word, or one character) together with the trailing spaces, the indentation stays; with nothing but spaces and
+ * tabs left on it the whole line, line break included. `null` when there is nothing below.
+ * @returns {{ from: {line:number, character:number}, to: {line:number, character:number} } | null}
+ */
+function belowTokenRange(textOf, lineCount, line, character)
+{
+	const text = textOf(line);
+	const rest = text.slice(character);
+	if (rest.trim() != "")
+	{
+		const token = /^\s*(?:[\p{L}\p{N}_]+|.)/u.exec(rest)[0];
+		return { from: { line, character }, to: { line, character: character + token.length } };
+	}
+	if (line + 1 >= lineCount)
+	{
+		return null;
+	}
+	const next = textOf(line + 1);
+	const code = next.replace(/\s+$/, "");
+	if (code.trim() == "")
+	{
+		return { from: { line, character: text.length }, to: { line: line + 1, character: next.length } };
+	}
+	const token = /[\p{L}\p{N}_]+$/u.exec(code) || /.$/u.exec(code);
+	return { from: { line: line + 1, character: code.length - token[0].length }, to: { line: line + 1, character: next.length } };
+}
+
+/** Sorts line ranges and joins the ones that touch or overlap (several cursors may delete the same blank lines). */
+function mergeLineRanges(ranges)
+{
+	const notAfter = (a, b) => a.line < b.line || (a.line == b.line && a.character <= b.character);
+	const sorted = ranges.slice().sort((a, b) => a.from.line - b.from.line || a.from.character - b.from.character);
+	const out = [];
+	for (const r of sorted)
+	{
+		const last = out[out.length - 1];
+		if (last && notAfter(r.from, last.to))
+		{
+			if (notAfter(last.to, r.to))
+			{
+				last.to = r.to;
+			}
+		}
+		else
+		{
+			out.push({ from: r.from, to: r.to });
+		}
+	}
+	return out;
+}
+
 function tabSizeOf(editor)
 {
 	return Number(editor.options.tabSize) || 4;
@@ -469,6 +799,25 @@ function indentWidth(text, tab)
 		}
 	}
 	return width;
+}
+
+/**
+ * Whether the block opened on `line` has no `end` yet. The block of that very line decides: an unclosed block
+ * somewhere else in the file (or a class that already has its `end` further down) must not add another `end`.
+ * Without a block on the line the count of the whole file is all there is to go by.
+ */
+function needsEnd(record, line, textOf)
+{
+	const own = record.blocks.filter(b => b.startLine == line && b.kind != "{");
+	if (own.length == 0)
+	{
+		return record.unclosed > 0;
+	}
+	// A block opened in the middle of a file takes the `end` of the block below it, so it only looks closed:
+	// its `end` has to stand where the block began (same indentation) to count. This holds for every kind
+	// (do, switch, class, function...) and even when a stray `end` further down makes the file balance out.
+	const indentOf = (n) => /^[ \t]*/.exec(textOf ? textOf(n) : "")[0];
+	return own.some(b => b.unclosed || (textOf && indentOf(b.endLine) != indentOf(b.startLine)));
 }
 
 function hasUnclosedRepeat(record, line)
@@ -528,7 +877,7 @@ function reportColorProblems(problems)
 	}
 	const lines = problems.map(p => p.problem == "unknownKey"
 		? t("colors.problem.unknownKey", p.name, p.value, Object.keys(CATEGORIES).join(", "))
-		: t("colors.problem." + p.problem, "pluto.highlight." + p.name, p.value));
+		: t("colors.problem." + p.problem, "plua.highlight." + p.name, p.value));
 	vscode.window.showWarningMessage(lines.join("\n"), t("colors.openSettings")).then(function (choice)
 	{
 		if (choice)
@@ -539,13 +888,13 @@ function reportColorProblems(problems)
 }
 
 /**
- * Keeps the colors set in `pluto.highlight.colors` / `pluto.highlight.tableBracketColors` in
+ * Keeps the colors set in `plua.highlight.colors` / `plua.highlight.tableBracketColors` in
  * `editor.tokenColorCustomizations`, as rules named "Pluto: ..." next to the user's own rules.
- * With `pluto.highlight.applyColors` off they are removed again.
+ * With `plua.highlight.applyColors` off they are removed again.
  */
 async function applyHighlightColors()
 {
-	const config = vscode.workspace.getConfiguration("pluto");
+	const config = vscode.workspace.getConfiguration("plua");
 	const enabled = config.get("highlight.applyColors", false) === true;
 	// Light themes (and high contrast light) use `lightColor`, the others `darkColor`.
 	const themeKind = vscode.window.activeColorTheme && vscode.window.activeColorTheme.kind;
@@ -576,7 +925,7 @@ async function applyHighlightColors()
 }
 
 /**
- * Registers the document-bound language providers for Pluto, and for Lua while `pluto.lua.enable`
+ * Registers the document-bound language providers for Pluto, and for Lua while `plua.lua.enable`
  * is on. `refresh()` re-registers them after the setting changed.
  * @param {vscode.ExtensionContext} context
  * @param {LanguageService} service
@@ -622,13 +971,13 @@ function registerLanguageProviders(context, service, providers)
 }
 
 /**
- * Sets the language of the messages: `pluto.language` (`auto` follows the editor's display language,
+ * Sets the language of the messages: `plua.language` (`auto` follows the editor's display language,
  * `vscode.env.language`; Russian for `ru`/`ru-RU`, English otherwise).
  * @returns {"en"|"ru"}
  */
 function applyLanguage()
 {
-	const setting = vscode.workspace.getConfiguration("pluto").get("language", "auto");
+	const setting = vscode.workspace.getConfiguration("plua").get("language", "auto");
 	const language = resolveLanguage(setting, vscode.env && vscode.env.language);
 	setLanguage(language);
 	return language;
@@ -652,16 +1001,21 @@ function activate(context)
 		vscode.languages.registerWorkspaceSymbolProvider(providers.workspaceSymbolProvider)
 	);
 	registerAutoClose(context, service);
+	registerSmartBackspace(context);
 	registerMultilineFormat(context, service);
 	registerDefaultValueHint(context, service);
 	registerAutoFormat(context, service);
+	registerLayoutFixer(context, service);
+	registerAutoIndent(context, service);
+	registerHeirsPeek(context, service);
+	registerRenameClass(context, service);
 	registerSettingsPanel(context);
 	registerTypeAutoTrigger(context);
 	registerNullableHighlight(context);
 	applyHighlightColors().catch(() => { });
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(function (event)
 	{
-		if (event.affectsConfiguration("pluto.highlight"))
+		if (event.affectsConfiguration("plua.highlight"))
 		{
 			applyHighlightColors().catch(() => { });
 		}
@@ -711,23 +1065,23 @@ function activate(context)
 		}),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
-			if (event.affectsConfiguration("pluto.language"))
+			if (event.affectsConfiguration("plua.language"))
 			{
 				applyLanguage(); // hovers and diagnostics are built from the dictionary on demand
 			}
-			if (event.affectsConfiguration("pluto.lua"))
+			if (event.affectsConfiguration("plua.lua"))
 			{
 				// Takes effect at once: providers are re-registered, the index rebuilt (diagnostics follow on their own).
 				languageProviders.refresh();
 				service.scan();
 			}
-			else if (event.affectsConfiguration("pluto.index"))
+			else if (event.affectsConfiguration("plua.index"))
 			{
 				service.scan();
 			}
-			else if (event.affectsConfiguration("pluto.workspace") || event.affectsConfiguration("search.exclude") || event.affectsConfiguration("files.exclude"))
+			else if (event.affectsConfiguration("plua.workspace") || event.affectsConfiguration("search.exclude") || event.affectsConfiguration("files.exclude"))
 			{
-				if (event.affectsConfiguration("pluto.workspace"))
+				if (event.affectsConfiguration("plua.workspace"))
 				{
 					watchIgnoreFiles();
 				}
@@ -771,7 +1125,7 @@ function activate(context)
 	const watcher = vscode.workspace.createFileSystemWatcher("**/{*.pluto,*.lua,info.json}");
 	const inIndexScope = function (uri)
 	{
-		return vscode.workspace.getConfiguration("pluto").get("index.enabled", true);
+		return vscode.workspace.getConfiguration("plua").get("index.enabled", true);
 	};
 	context.subscriptions.push(
 		watcher,
@@ -793,4 +1147,4 @@ function activate(context)
 
 function deactivate() {}
 
-module.exports = { activate, deactivate, LanguageService, closerFor, registerLanguageProviders, selectorFor, applyLanguage };
+module.exports = { activate, deactivate, LanguageService, closerFor, needsEnd, quickDeleteDecision, pieceBelow, pieceRange, belowTokenRange, mergeLineRanges, registerLanguageProviders, selectorFor, applyLanguage };

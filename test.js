@@ -599,6 +599,57 @@ async function main()
         `print(config.deep.a.b.c.d.value)`,
     ], 6);
 
+    // Methods with an access modifier: `function` and the body are tokenized like any other function.
+    const checkScopes = function (name, lines, wants)
+    {
+        let state = vsctm.INITIAL;
+        const found = new Map();
+        lines.forEach(function (line, n)
+        {
+            const r = grammar.tokenizeLine(line, state);
+            state = r.ruleStack;
+            for (const t of r.tokens)
+            {
+                found.set(n + ":" + line.slice(t.startIndex, t.endIndex).trim(), t.scopes);
+            }
+        });
+        for (const [key, scope] of wants)
+        {
+            const scopes = found.get(key) || [];
+            if (!scopes.includes(scope))
+            {
+                console.log(name + " MISMATCH: " + key + " wanted " + scope + ", got " + scopes.join(" > "));
+                ok = false;
+            }
+        }
+    };
+    checkScopes("class with access modifiers", [
+        `class Entity`,
+        `    public function first()`,
+        `        return self.hp`,
+        `    end`,
+        `end`,
+        `public function get_health()`,
+        `    return self.hp`,
+        `end`,
+        `private static function make(id: int): Entity`,
+        `    return new Entity(id)`,
+        `end`,
+    ], [
+        ["1:public", "storage.modifier.access.pluto"],
+        ["1:function", "storage.type.function.pluto"],
+        ["1:first", "entity.name.function.pluto"],
+        ["2:return", "keyword.control.pluto"],
+        ["2:self", "variable.language.self.pluto"],
+        ["5:public", "storage.modifier.access.pluto"],
+        ["5:function", "storage.type.function.pluto"],
+        ["6:return", "keyword.control.pluto"],
+        ["8:private", "storage.modifier.access.pluto"],
+        ["8:static", "storage.modifier.pluto"],
+        ["8:function", "storage.type.function.pluto"],
+        ["9:return", "keyword.control.pluto"],
+    ]);
+
     if (!ok)
     {
         process.exit(1);

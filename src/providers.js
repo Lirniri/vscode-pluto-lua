@@ -113,13 +113,13 @@ function createProviders(service)
 
 	/**
 	 * Link to a declaration. Within the same file it is just the line number; for other files the
-	 * format follows `pluto.hover.sourcePath`. The full path is always available as the link's tooltip.
+	 * format follows `plua.hover.sourcePath`. The full path is always available as the link's tooltip.
 	 * @param {any} sym
 	 * @param {any} fromFile The file the hover/completion was requested in.
 	 */
 	const sourceLink = function (sym, fromFile)
 	{
-		const mode = vscode.workspace.getConfiguration("pluto").get("hover.sourcePath", "short");
+		const mode = vscode.workspace.getConfiguration("plua").get("hover.sourcePath", "short");
 		if (mode == "none")
 		{
 			return "";
@@ -290,7 +290,7 @@ function createProviders(service)
 	 */
 	const appendFunctionBody = function (md, sym, document)
 	{
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		if (!config.get("hover.showFunctionBody", true) || !sym.file || sym.endLine === undefined || sym.endLine < sym.line)
 		{
 			return;
@@ -512,7 +512,7 @@ const typeItems = function (file, line, glue)
  */
 const defaultValueItems = function (document, position, file, before)
 {
-	if (!isPlutoDocument(document) || !vscode.workspace.getConfiguration("pluto").get("completion.defaultValues", true))
+	if (!isPlutoDocument(document) || !vscode.workspace.getConfiguration("plua").get("completion.defaultValues", true))
 	{
 		return null;
 	}
@@ -605,7 +605,7 @@ const completionProvider = {
 			if (inTypeHint)
 			{
 				// `:` and a space open the list by themselves, unless that is switched off.
-				if (context.triggerCharacter && !vscode.workspace.getConfiguration("pluto").get("completion.autoTriggerTypes", true))
+				if (context.triggerCharacter && !vscode.workspace.getConfiguration("plua").get("completion.autoTriggerTypes", true))
 				{
 					return undefined;
 				}
@@ -671,7 +671,7 @@ const completionProvider = {
 
 			const items = [];
 			const seen = new Set();
-			const config = vscode.workspace.getConfiguration("pluto", document.uri);
+			const config = vscode.workspace.getConfiguration("plua", document.uri);
 			const classesOnly = /\b(?:new|extends|instanceof)\s+\w*$/.test(before);
 
 			// Locals in scope
@@ -862,7 +862,7 @@ const completionProvider = {
 			}
 			const resolved = analyzer.resolve(file, position.line, chain.parts, { lastSep: chain.lastSep });
 			const contents = nullableDoc ? [nullableDoc] : [];
-			const maxDeclarations = Math.max(1, Math.floor(Number(vscode.workspace.getConfiguration("pluto").get("hover.maxDeclarations", 8))) || 8);
+			const maxDeclarations = Math.max(1, Math.floor(Number(vscode.workspace.getConfiguration("plua").get("hover.maxDeclarations", 8))) || 8);
 			for (const sym of resolved.symbols.slice(0, maxDeclarations))
 			{
 				// Hovering a class shows its constructor, too.
@@ -923,7 +923,7 @@ const completionProvider = {
 				contents.push(link);
 			}
 			// A numeric `for`: the values the variable goes through, e.g. `for i = 1, 10, 2` → 1, 3, 5, 7, 9.
-			if (chain.parts.length == 1 && chain.word == "for" && vscode.workspace.getConfiguration("pluto").get("hover.forPreview", true) !== false)
+			if (chain.parts.length == 1 && chain.word == "for" && vscode.workspace.getConfiguration("plua").get("hover.forPreview", true) !== false)
 			{
 				const info = describeNumericFor(lineText);
 				if (info)
@@ -1141,7 +1141,7 @@ const completionProvider = {
 		provideDocumentSymbols(document)
 		{
 			const file = service.getRecord(document);
-			const config = vscode.workspace.getConfiguration("pluto", document.uri);
+			const config = vscode.workspace.getConfiguration("plua", document.uri);
 			const opt = {
 				localVariables: config.get("outline.localVariables", true),
 				loopVariables: config.get("outline.loopVariables", false),
@@ -1497,7 +1497,7 @@ const completionProvider = {
 			{
 				if (luaOff && /\.lua$/i.test(file.path))
 				{
-					continue; // `pluto.lua.enable` is off: Lua files are only read to resolve what Pluto code uses
+					continue; // `plua.lua.enable` is off: Lua files are only read to resolve what Pluto code uses
 				}
 				for (const sym of file.symbols)
 				{

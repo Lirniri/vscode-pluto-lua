@@ -46,7 +46,7 @@ class DefaultValueHint
 
 	_settings()
 	{
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		const color = (key, fallback) => String(config.get(key, fallback) || fallback);
 		return {
 			highlight: config.get("highlight.paramNoDefault", true) !== false,
@@ -250,7 +250,7 @@ function registerDefaultValueHint(context, service)
 		}),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
-			if (event.affectsConfiguration("pluto.highlight") || event.affectsConfiguration("pluto.completion"))
+			if (event.affectsConfiguration("plua.highlight") || event.affectsConfiguration("plua.completion"))
 			{
 				hint.rebuild();
 			}

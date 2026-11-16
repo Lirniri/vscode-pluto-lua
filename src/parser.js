@@ -196,6 +196,7 @@ const RESERVED = new Set([
  * @property {string} [returnType]
  * @property {string} [type]
  * @property {string} [extends]
+ * @property {{ line: number, col: number, endCol: number }} [extendsAt] Where the name of the base class stands.
  * @property {string} [value]
  * @property {number} line
  * @property {number} col
@@ -323,7 +324,7 @@ function parse(text, options)
 		return block;
 	};
 
-	const pop = function (endLine)
+	const pop = function (endLine, unclosed)
 	{
 		const block = stack.pop();
 		if (!block)
@@ -340,7 +341,8 @@ function parse(text, options)
 		}
 		if (block.kind != "{" || endLine > block.startLine)
 		{
-			blocks.push({ kind: block.kind, startLine: block.startLine, endLine, marks: block.marks });
+			// `unclosed`: the end of the file ended it, there was no `end` (or `until`) for it.
+			blocks.push({ kind: block.kind, startLine: block.startLine, endLine, marks: block.marks, unclosed: !!unclosed });
 		}
 	};
 
@@ -1248,6 +1250,8 @@ function parse(text, options)
 					if (sym)
 					{
 						sym.extends = base.parts.join(".");
+						// where the name of the base stands (the last part of `mod.Base`), for the rename
+						sym.extendsAt = { line: base.nameTok.line, col: base.nameTok.col, endCol: base.nameTok.col + base.nameTok.v.length };
 					}
 					j = base.next;
 				}
@@ -1692,7 +1696,7 @@ function parse(text, options)
 	const lastLine = Math.max(0, lines.length - 1);
 	while (stack.length)
 	{
-		pop(lastLine);
+		pop(lastLine, true);
 	}
 
 	const result = { symbols, blocks, unclosed, returnName, requires, lineCount: lines.length };

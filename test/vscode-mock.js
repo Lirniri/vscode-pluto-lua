@@ -274,14 +274,14 @@ module.exports = {
 			return uri.path.startsWith("/ws/") ? this.workspaceFolders[0] : undefined;
 		},
 		// Keys are stored fully qualified ("search.exclude"); settings of this extension may also be
-		// stored without the "pluto." prefix ("outline.parameters").
+		// stored without the "plua." prefix ("outline.parameters").
 		getConfiguration(section)
 		{
 			return {
 				get(key, fallback)
 				{
 					const full = section ? section + "." + key : key;
-					const short = full.replace(/^pluto\./, "");
+					const short = full.replace(/^plua./, "");
 					return full in config ? config[full] : short in config ? config[short] : fallback;
 				},
 			};

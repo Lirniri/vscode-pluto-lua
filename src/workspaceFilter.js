@@ -1,5 +1,5 @@
 // Decides which files of the workspace are indexed, based on ignore files (.gitignore, .plutoignore, ...)
-// and glob patterns from the settings (pluto.workspace.exclude, search.exclude, files.exclude).
+// and glob patterns from the settings (plua.workspace.exclude, search.exclude, files.exclude).
 
 "use strict";
 
@@ -26,7 +26,7 @@ class WorkspaceFilter
 	 */
 	static ignoreFileNames(folder)
 	{
-		const config = vscode.workspace.getConfiguration("pluto.workspace", folder ? folder.uri : undefined);
+		const config = vscode.workspace.getConfiguration("plua.workspace", folder ? folder.uri : undefined);
 		const names = new Set();
 		const configured = config.get("ignoreFiles", [".gitignore", ".plutoignore", ".luaignore"]);
 		for (const name of Array.isArray(configured) ? configured : [])
@@ -36,7 +36,7 @@ class WorkspaceFilter
 				names.add(name.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, ""));
 			}
 		}
-		// pluto.workspace.useGitignore has the final say over .gitignore.
+		// plua.workspace.useGitignore has the final say over .gitignore.
 		if (config.get("useGitignore", true))
 		{
 			names.add(".gitignore");
@@ -57,7 +57,7 @@ class WorkspaceFilter
 		const next = new Map();
 		await Promise.all(folders.map(async (folder) =>
 		{
-			const pluto = vscode.workspace.getConfiguration("pluto", folder.uri);
+			const pluto = vscode.workspace.getConfiguration("plua", folder.uri);
 			const patterns = [];
 			const add = (list) =>
 			{

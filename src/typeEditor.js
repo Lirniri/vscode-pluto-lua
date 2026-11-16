@@ -31,7 +31,7 @@ function triggerTypeSuggest(event)
 	{
 		return false;
 	}
-	if (!vscode.workspace.getConfiguration("pluto", document.uri).get("completion.autoTriggerTypes", true))
+	if (!vscode.workspace.getConfiguration("plua", document.uri).get("completion.autoTriggerTypes", true))
 	{
 		return false;
 	}
@@ -77,7 +77,7 @@ class NullableHighlighter
 
 	_settings()
 	{
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		const color = (key, fallback) => String(config.get(key, fallback) || fallback);
 		return {
 			enabled: config.get("highlight.nullableTypes", true) !== false,
@@ -178,7 +178,7 @@ function registerNullableHighlight(context)
 		vscode.workspace.onDidChangeTextDocument(event => event.contentChanges.length && highlighter.schedule(event.document)),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
-			if (event.affectsConfiguration("pluto.highlight"))
+			if (event.affectsConfiguration("plua.highlight"))
 			{
 				highlighter.rebuild();
 			}

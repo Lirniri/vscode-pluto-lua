@@ -231,7 +231,7 @@ function findOnPath(envPath, family)
 
 /**
  * Finds the compiler to use.
- * 1. `configured` (pluto.diagnostics.compilerPath), if set and it exists;
+ * 1. `configured` (plua.diagnostics.compilerPath), if set and it exists;
  * 2. a compiler inside of one of the workspace folders (only if `allowWorkspace`);
  * 3. `plutoc` / `pluto` on the PATH.
  * @param {{ configured?: string, workspaceFolders: string[], allowWorkspace?: boolean, envPath?: string, family?: "pluto"|"lua" }} options
@@ -286,6 +286,32 @@ function findCompiler(options)
 		return { path: onPath, source: "path", problem };
 	}
 	return { path: null, source: null, problem };
+}
+
+/**
+ * The first entry of `plua.compilers.list` for the language that resolves to an executable file.
+ * @param {any} entries The setting.
+ * @param {"pluto"|"lua"} family
+ * @param {string[]} workspaceFolders
+ * @returns {{ path: string|null, problems: string[] }}
+ */
+function pickFromList(entries, family, workspaceFolders, envPath)
+{
+	const problems = [];
+	for (const entry of Array.isArray(entries) ? entries : [])
+	{
+		if (!entry || entry.language !== family || typeof entry.path != "string" || !entry.path.trim())
+		{
+			continue;
+		}
+		const found = findCompiler({ configured: entry.path, workspaceFolders, allowWorkspace: false, envPath, family });
+		if (found.source == "setting")
+		{
+			return { path: found.path, problems };
+		}
+		problems.push(found.problem || entry.path);
+	}
+	return { path: null, problems };
 }
 
 // Compiles stdin with `load` (which never runs the chunk) and reports the error, for interpreters without a parse-only flag.
@@ -500,6 +526,7 @@ function parseCompilerOutput(output, lines)
 module.exports = {
 	expandPath,
 	findCompiler,
+	pickFromList,
 	findLocalCompilers,
 	findOnPath,
 	pickBest,

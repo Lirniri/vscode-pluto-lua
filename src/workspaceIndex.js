@@ -238,6 +238,54 @@ class WorkspaceIndex
 	}
 
 	/**
+	 * The classes that extend `name`: those that say `extends <name>`, then those that extend them, and so on down the
+	 * chain of `extends`. A class that is its own ancestor (a cycle) is visited once.
+	 * @param {string} name
+	 * @returns {{ sym: PlutoSymbol, file: FileRecord, depth: number }[]} The nearest relatives first (depth 1 is a direct heir).
+	 */
+	subclasses(name)
+	{
+		const byBase = new Map();
+		for (const file of this.files.values())
+		{
+			for (const sym of file.symbols)
+			{
+				if (sym.kind == "class" && !sym.container && sym.extends)
+				{
+					// `extends mod.Base` is a class called `Base`
+					const base = sym.extends.slice(sym.extends.lastIndexOf(".") + 1);
+					if (!byBase.has(base))
+					{
+						byBase.set(base, []);
+					}
+					byBase.get(base).push({ sym, file });
+				}
+			}
+		}
+		const out = [];
+		const seen = new Set([name]);
+		let level = [name];
+		for (let depth = 1; level.length; ++depth)
+		{
+			const next = [];
+			for (const base of level)
+			{
+				for (const item of byBase.get(base) || [])
+				{
+					out.push({ sym: item.sym, file: item.file, depth });
+					if (!seen.has(item.sym.name))
+					{
+						seen.add(item.sym.name);
+						next.push(item.sym.name);
+					}
+				}
+			}
+			level = next;
+		}
+		return out;
+	}
+
+	/**
 	 * Direct members of a container plus those inherited through `extends`.
 	 * @param {string} container
 	 * @param {FileRecord} [preferFile] If given, same-named containers local to other files are ignored.

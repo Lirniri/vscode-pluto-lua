@@ -8,16 +8,18 @@ const { t } = require("./i18n");
 
 /** The tabs, in order. A setting that no tab claims lands on the first one, so a new setting is never lost. */
 const TABS = [
-	{ id: "general", match: (k) => k == "pluto.language" || k == "pluto.autoCloseBlocks" },
-	{ id: "index", match: (k) => /^pluto\.(?:index|workspace)\./.test(k) },
-	{ id: "lua", match: (k) => /^pluto\.lua\./.test(k) },
-	{ id: "completion", match: (k) => /^pluto\.completion\./.test(k) },
-	{ id: "hover", match: (k) => /^pluto\.hover\./.test(k) },
-	{ id: "outline", match: (k) => /^pluto\.outline\./.test(k) },
-	{ id: "diagnostics", match: (k) => /^pluto\.diagnostics\./.test(k) },
-	{ id: "highlight", match: (k) => /^pluto\.highlight\./.test(k) },
-	{ id: "typing", match: (k) => /^pluto\.format\./.test(k) },
-	{ id: "json", match: (k) => /^pluto\.json\./.test(k) },
+	{ id: "general", match: (k) => k == "plua.language" || k == "plua.autoCloseBlocks" || /^plua\.quickDeleteEnd/.test(k) || k == "plua.shiftDeleteByPieces" || k == "plua.shiftBackspaceDeleteFromBelow.enabled" || k == "plua.shiftDeleteFromNextLine" || k == "plua.lua.enable" || k == "plua.lua.indexFiles" },
+	{ id: "index", match: (k) => /^plua.(?:index|workspace)\./.test(k) },
+	{ id: "compilers", match: (k) => /^plua\.compilers\./.test(k) || k == "plua.lua.compilerPath" || k == "plua.lua.checkSyntax" || k == "plua.diagnostics.compilerPath" },
+	{ id: "autoIndent", match: (k) => /^plua\.autoIndent\./.test(k) },
+	{ id: "layout", match: (k) => /^plua\.layoutFixer\./.test(k) },
+	{ id: "completion", match: (k) => /^plua\.completion\./.test(k) },
+	{ id: "hover", match: (k) => /^plua\.hover\./.test(k) },
+	{ id: "outline", match: (k) => /^plua\.outline\./.test(k) },
+	{ id: "diagnostics", match: (k) => /^plua\.diagnostics\./.test(k) },
+	{ id: "highlight", match: (k) => /^plua\.highlight\./.test(k) },
+	{ id: "typing", match: (k) => /^plua\.format\./.test(k) },
+	{ id: "json", match: (k) => /^plua\.json\./.test(k) },
 ];
 
 const FONT_STYLES = ["", "normal", "bold", "italic", "bold italic", "underline", "bold underline", "italic underline"];
@@ -49,13 +51,17 @@ function resolveText(text, nls)
  */
 function kindOf(key, prop)
 {
-	if (key == "pluto.highlight.colors")
+	if (key == "plua.highlight.colors")
 	{
 		return "colors";
 	}
-	if (key == "pluto.highlight.tableBracketColors")
+	if (key == "plua.highlight.tableBracketColors")
 	{
 		return "bracketColors";
+	}
+	if (key == "plua.compilers.list")
+	{
+		return "compilers";
 	}
 	if (Array.isArray(prop.enum))
 	{
@@ -106,7 +112,7 @@ function buildModel(pkg, nls, valueOf, tabTitles)
 		const item = {
 			key,
 			kind,
-			title: key.replace(/^pluto\./, ""),
+			title: key.replace(/^plua./, ""),
 			description: resolveText(prop.markdownDescription || prop.description, nls),
 			value: valueOf(key),
 			default: prop.default,
@@ -152,12 +158,29 @@ function validateChange(pkg, key, value)
 {
 	const props = pkg.contributes.configuration.properties;
 	const prop = Object.prototype.hasOwnProperty.call(props, key) ? props[key] : null;
-	if (!prop || !key.startsWith("pluto."))
+	if (!prop || !key.startsWith("plua."))
 	{
 		return { ok: false, error: t("settings.err.unknown") };
 	}
 	const kind = kindOf(key, prop);
 	const result = (v) => ({ ok: true, value: v, isDefault: same(v, prop.default) });
+	if (key == "plua.layoutFixer.sourceLayouts")
+	{
+		if (!Array.isArray(value) || value.some(v => !["ru", "uk", "be"].includes(v)))
+		{
+			return { ok: false, error: t("settings.err.layouts") };
+		}
+		return result(Array.from(new Set(value)));
+	}
+	if (key == "plua.layoutFixer.customMap")
+	{
+		if (!value || typeof value != "object" || Array.isArray(value)
+			|| Object.entries(value).some(([k, v]) => Array.from(k).length != 1 || typeof v != "string" || Array.from(v).length > 4))
+		{
+			return { ok: false, error: t("settings.err.customMap") };
+		}
+		return result(value);
+	}
 	switch (kind)
 	{
 		case "boolean":
@@ -189,6 +212,8 @@ function validateChange(pkg, key, value)
 			}
 			return result(value.map(v => v.trim()).filter(Boolean));
 		}
+		case "compilers":
+			return cleanCompilers(value, result);
 		case "colors":
 		{
 			if (!value || typeof value != "object" || Array.isArray(value))
@@ -252,6 +277,51 @@ function validateChange(pkg, key, value)
 	}
 }
 
+/** The most a path of an interpreter may be. */
+const MAX_COMPILER_PATH = 1024;
+
+/**
+ * The list of interpreters: `{ language: "pluto"|"lua", path }`. A path is a program that will be started, so it must be a
+ * single line without control characters or quotes/shell operators; empty paths are dropped, equal entries merged.
+ */
+function cleanCompilers(value, result)
+{
+	if (!Array.isArray(value))
+	{
+		return { ok: false, error: t("settings.err.array") };
+	}
+	const clean = [];
+	for (const entry of value)
+	{
+		if (!entry || typeof entry != "object" || Array.isArray(entry) || Object.keys(entry).some(k => k != "language" && k != "path"))
+		{
+			return { ok: false, error: t("settings.err.field") };
+		}
+		if (entry.language !== "pluto" && entry.language !== "lua")
+		{
+			return { ok: false, error: t("settings.err.choice") };
+		}
+		const p = typeof entry.path == "string" ? entry.path.trim() : null;
+		if (p === null)
+		{
+			return { ok: false, error: t("settings.err.text") };
+		}
+		if (!p)
+		{
+			continue;
+		}
+		if (p.length > MAX_COMPILER_PATH || /["<>|&;`]/.test(p) || Array.from(p).some(ch => ch.charCodeAt(0) < 32))
+		{
+			return { ok: false, error: t("settings.err.compilerPath") };
+		}
+		if (!clean.some(c => c.language == entry.language && c.path == p))
+		{
+			clean.push({ language: entry.language, path: p });
+		}
+	}
+	return result(clean);
+}
+
 /** A style of the panel: an object with `color`, `darkColor`, `lightColor`, `fontStyle`, or a short string. Empty parts are dropped. */
 function cleanStyle(value)
 {
@@ -280,4 +350,4 @@ function styleProblem(value)
 	return checkStyle(value).problem || null;
 }
 
-module.exports = { TABS, FONT_STYLES, HEX, tabOf, resolveText, kindOf, buildModel, validateChange, cleanStyle, styleProblem };
+module.exports = { TABS, FONT_STYLES, HEX, tabOf, resolveText, kindOf, buildModel, validateChange, cleanStyle, styleProblem, cleanCompilers };

@@ -60,7 +60,8 @@
 		String(text || "").split(/\n\n+/).forEach(function (par)
 		{
 			const p = el("p");
-			par.split("`").forEach((piece, i) => p.append(i % 2 ? el("code", {}, piece) : document.createTextNode(piece)));
+			// `#plua.some.setting#` is how the standard settings editor links to a setting; here it is just the name.
+			par.split("`").forEach((piece, i) => p.append(i % 2 ? el("code", {}, piece.replace(/^#([\w.]+)#$/, "$1")) : document.createTextNode(piece)));
 			out.append(p);
 		});
 		return out;
@@ -193,6 +194,22 @@
 				return el("div", { class: "map" }, item.fields.map(f => el("label", {}, el("code", {}, f),
 					el("input", { type: "text", value: cur[f] || "", spellcheck: "false", onchange: (e) => { cur[f] = e.target.value; send(item.key, cur); } }))));
 			}
+			case "compilers":
+			{
+				const cur = (v || []).map(c => ({ language: c.language, path: c.path }));
+				const holder = el("div", { class: "styles" });
+				const draw = function ()
+				{
+					holder.replaceChildren(...cur.map((entry, i) => el("div", { class: "map" },
+						el("select", { onchange: (e) => { entry.language = e.target.value; send(item.key, cur); } },
+							["pluto", "lua"].map(l => el("option", { value: l, selected: l === entry.language }, l))),
+						el("input", { type: "text", class: "wide", value: entry.path, placeholder: S.compilerPath, spellcheck: "false", onchange: (e) => { entry.path = e.target.value; send(item.key, cur); } }),
+						el("button", { class: "icon", title: S.remove, "aria-label": S.remove, onclick: () => { cur.splice(i, 1); send(item.key, cur); draw(); } }, "×"))),
+						el("button", { onclick: () => { cur.push({ language: "pluto", path: "" }); draw(); } }, "+ " + S.add));
+				};
+				draw();
+				return holder;
+			}
 			case "colors":
 			{
 				const cur = Object.assign({}, v || {});
@@ -235,7 +252,7 @@
 
 	function itemView(item)
 	{
-		const wide = ["colors", "bracketColors", "list", "map", "json", "text"].includes(item.kind);
+		const wide = ["colors", "bracketColors", "compilers", "list", "map", "json", "text"].includes(item.kind);
 		const row = el("section", { class: "item " + (wide ? "stack" : ""), "data-key": item.key },
 			el("div", { class: "head" },
 				el("h3", {}, item.title),

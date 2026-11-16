@@ -45,7 +45,7 @@ class DiagnosticsManager
 
 	_config()
 	{
-		const config = vscode.workspace.getConfiguration("pluto");
+		const config = vscode.workspace.getConfiguration("plua");
 		return {
 			enabled: config.get("diagnostics.enable", true),
 			luaEnabled: config.get("lua.enable", true) !== false,
@@ -55,6 +55,7 @@ class DiagnosticsManager
 			// `.lua` files are syntax-checked with a Lua interpreter while the Lua support is on.
 			luaCheck: config.get("lua.enable", true) !== false && config.get("lua.checkSyntax", true) !== false,
 			luaCompilerPath: config.get("lua.compilerPath", "") || "",
+			compilersList: config.get("compilers.list", []),
 			duplicates: ["warning", "error", "off"].includes(config.get("diagnostics.duplicateParams", "warning")) ? config.get("diagnostics.duplicateParams", "warning") : "warning",
 			brackets: ["off", "suggest", "auto"].includes(config.get("format.fixMismatchedBrackets", "suggest")) ? config.get("format.fixMismatchedBrackets", "suggest") : "suggest",
 			returnTypes: ["warning", "error", "off"].includes(config.get("diagnostics.returnTypes", "warning")) ? config.get("diagnostics.returnTypes", "warning") : "warning",
@@ -100,7 +101,10 @@ class DiagnosticsManager
 				return this._compiler_;
 			}
 			const folders = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme == "file").map(f => f.uri.fsPath);
-			const found = compiler.findCompiler({ configured: this._config().compilerPath, workspaceFolders: folders });
+			const cfg = this._config();
+			const listed = compiler.pickFromList(cfg.compilersList, "pluto", folders);
+			listed.problems.forEach(p => this._log(p));
+			const found = listed.path ? { path: listed.path, source: "setting" } : compiler.findCompiler({ configured: cfg.compilerPath, workspaceFolders: folders });
 			if (found.problem)
 			{
 				this._log(found.problem);
@@ -114,7 +118,7 @@ class DiagnosticsManager
 	}
 
 	/**
-	 * The Lua interpreter that checks `.lua` files (only while `pluto.lua.enable` is on): `pluto.lua.compilerPath`,
+	 * The Lua interpreter that checks `.lua` files (only while `plua.lua.enable` is on): `plua.lua.compilerPath`,
 	 * else `bin/lua`, `tools/lua`... of the workspace, else `luac` / `lua` / `luajit` on the PATH.
 	 */
 	luaCompiler()
@@ -128,13 +132,16 @@ class DiagnosticsManager
 				return this._luaCompiler_;
 			}
 			const folders = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme == "file").map(f => f.uri.fsPath);
-			const found = compiler.findCompiler({ configured: this._config().luaCompilerPath, workspaceFolders: folders, family: "lua" });
+			const cfg = this._config();
+			const listed = compiler.pickFromList(cfg.compilersList, "lua", folders);
+			listed.problems.forEach(p => this._log(p));
+			const found = listed.path ? { path: listed.path, source: "setting" } : compiler.findCompiler({ configured: cfg.luaCompilerPath, workspaceFolders: folders, family: "lua" });
 			if (found.problem)
 			{
-				this._log(found.problem.replace("pluto.diagnostics.compilerPath", "pluto.lua.compilerPath"));
+				this._log(found.problem.replace("plua.diagnostics.compilerPath", "plua.lua.compilerPath"));
 			}
 			this._log(found.path
-				? t("diag.luaUsing", found.path, t("diag.source." + found.source).replace("pluto.diagnostics.compilerPath", "pluto.lua.compilerPath"))
+				? t("diag.luaUsing", found.path, t("diag.source." + found.source).replace("plua.diagnostics.compilerPath", "plua.lua.compilerPath"))
 				: t("diag.luaNone"));
 			this._luaCompiler_ = found;
 		}
@@ -158,7 +165,7 @@ class DiagnosticsManager
 		return document.languageId == "lua" || /.lua$/i.test(document.uri.path);
 	}
 
-	/** Whether this extension checks the document at all (`.lua` files only while `pluto.lua.enable` is on). */
+	/** Whether this extension checks the document at all (`.lua` files only while `plua.lua.enable` is on). */
 	_isChecked(document, config)
 	{
 		if (this._isPluto(document) || this._isManifest(document) || this._isJsonPaths(document, config))
@@ -174,7 +181,7 @@ class DiagnosticsManager
 	}
 
 	/**
-	 * Whether the paths in a JSON document are checked: `pluto.json.files` (default `**\/info.json`).
+	 * Whether the paths in a JSON document are checked: `plua.json.files` (default `**\/info.json`).
 	 * The patterns are matched against the path inside of the workspace folder, or the whole path outside of one.
 	 */
 	_isJsonPaths(document, config)
@@ -337,7 +344,7 @@ class DiagnosticsManager
 			return;
 		}
 		this._allFilesLoading = true;
-		const max = Math.max(1, Number(vscode.workspace.getConfiguration("pluto").get("index.maxFiles", 5000)) || 5000);
+		const max = Math.max(1, Number(vscode.workspace.getConfiguration("plua").get("index.maxFiles", 5000)) || 5000);
 		const filter = this.service.filter;
 		Promise.resolve(vscode.workspace.findFiles("**/*", filter.findFilesExclude(), max * 4))
 			.then((uris) =>
@@ -382,7 +389,7 @@ class DiagnosticsManager
 			}
 			else if (choice == never)
 			{
-				vscode.workspace.getConfiguration("pluto").update("json.notifyNoFolder", false, vscode.ConfigurationTarget.Global);
+				vscode.workspace.getConfiguration("plua").update("json.notifyNoFolder", false, vscode.ConfigurationTarget.Global);
 			}
 		}, () => {});
 	}
@@ -672,31 +679,31 @@ function registerDiagnostics(context, service, indexed)
 		vscode.workspace.onDidCloseTextDocument(document => manager.clear(document.uri)),
 		vscode.workspace.onDidChangeConfiguration(function (event)
 		{
-			if (event.affectsConfiguration("pluto.language"))
+			if (event.affectsConfiguration("plua.language"))
 			{
 				manager.recheckAll(false); // the messages of the built-in checks change with the language
 			}
-			else if (event.affectsConfiguration("pluto.lua"))
+			else if (event.affectsConfiguration("plua.lua"))
 			{
 				manager.resetCompiler();
 				manager.recheckAll(true);
 				manager.recheckSoon(); // once the index has been rebuilt
 			}
-			else if (event.affectsConfiguration("pluto.format"))
+			else if (event.affectsConfiguration("plua.format"))
 			{
 				manager.recheckAll(false); // the check of the closing brackets is a setting there
 			}
-			else if (event.affectsConfiguration("pluto.json"))
+			else if (event.affectsConfiguration("plua.json"))
 			{
 				manager.invalidateFiles();
 				manager.recheckAll(false);
 			}
-			else if (event.affectsConfiguration("pluto.diagnostics"))
+			else if (event.affectsConfiguration("plua.diagnostics") || event.affectsConfiguration("plua.compilers"))
 			{
 				manager.resetCompiler();
 				manager.recheckAll(true);
 			}
-			else if (event.affectsConfiguration("pluto.index"))
+			else if (event.affectsConfiguration("plua.index"))
 			{
 				manager.recheckSoon();
 			}
@@ -725,11 +732,11 @@ function registerDiagnostics(context, service, indexed)
 	);
 
 	// Paths in JSON files: a file created, deleted or renamed can fix or break them. (A watcher on everything is
-	// only needed with `pluto.json.checkAllPaths`; creating one on demand keeps the default cheap.)
+	// only needed with `plua.json.checkAllPaths`; creating one on demand keeps the default cheap.)
 	let everything = null;
 	const watchEverything = function ()
 	{
-		if (everything || !vscode.workspace.getConfiguration("pluto").get("json.checkAllPaths", false))
+		if (everything || !vscode.workspace.getConfiguration("plua").get("json.checkAllPaths", false))
 		{
 			return;
 		}
@@ -737,7 +744,7 @@ function registerDiagnostics(context, service, indexed)
 		context.subscriptions.push(everything, everything.onDidCreate(() => manager.invalidateFiles()), everything.onDidDelete(() => manager.invalidateFiles()));
 	};
 	watchEverything();
-	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration("pluto.json") && watchEverything()));
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration("plua.json") && watchEverything()));
 	context.subscriptions.push(vscode.languages.registerCodeActionsProvider(
 		[{ language: "json" }, { language: "jsonc" }],
 		{

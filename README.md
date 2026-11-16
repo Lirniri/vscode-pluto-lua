@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# Pluto & Lua Mini-IDE
+# Pluto & Lua: Mini-IDE
 
 *A mini-IDE for [Pluto](https://plutolang.github.io/) and Lua inside Visual Studio Code: syntax highlighting, completion, hover, typing helpers, diagnostics, a Lua syntax check and a settings panel.*
 
@@ -34,7 +34,7 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 ### Completion and navigation
 
 - **Completion** for Pluto keywords, the standard library (`string.split`, `table.contains`, `io.listdir`, `json.encode`, ...), built-in modules (`require "pluto:json"`), and everything declared in your workspace: classes, methods, fields, functions with their parameters and type hints, enums, and module ids from `info.json` manifests.
-- **Hover** with the signature, the comment written above the declaration, the file it comes from and, for functions and methods, their source code in a compact form (comments removed, indentation normalized, logical blocks separated by blank lines; see `pluto.hover.showFunctionBody` and `pluto.hover.maxBodyLines`). Hovering a return type (`void` in `function f(): void`) also shows what the developer wrote in an `@return` comment, above the function or inside of its body, e.g. `-- @return bool Whether it worked`; the same lines are part of the function's hover and signature help.
+- **Hover** with the signature, the comment written above the declaration, the file it comes from and, for functions and methods, their source code in a compact form (comments removed, indentation normalized, logical blocks separated by blank lines; see `plua.hover.showFunctionBody` and `plua.hover.maxBodyLines`). Hovering a return type (`void` in `function f(): void`) also shows what the developer wrote in an `@return` comment, above the function or inside of its body, e.g. `-- @return bool Whether it worked`; the same lines are part of the function's hover and signature help.
 - **Signature help** when typing `(`, highlighting the current argument.
 - **Go to Definition** (`F12` / `Ctrl+Click`) for classes, methods, functions, variables, and the file behind `require("...")`.
 - **Outline & breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), and **folding** of blocks, comments and `--#region` markers.
@@ -49,6 +49,11 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 - **Typing helpers**: a new line after the comma of a multi-line list (after a pause, so you can go on typing), grey suggestions that `Tab` takes (`()` after `function`, ` = ` after `["key"]`, ` then` / ` do` after a block header), a warning for a parameter or table key written twice, and a quick fix (or an automatic fix after a pause) for a closing bracket that does not fit the last opened one (`{ ]`). See [Typing helpers](#typing-helpers).
 - **Smart multi-line lists**: for a function whose `(` ... `)` or a table whose `{` ... `}` stands on lines of its own, the first element typed right after the opening bracket moves to its own indented line, and Enter at the end of an element adds the missing comma. See [Multi-line parameters and tables](#multi-line-parameters-and-tables).
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
+- **Keyboard layout fixer**: text typed on a Cyrillic layout by mistake (`дщсфд`) turns into the English keys of the same place (`local`) while you type or at the end of a word; `Э` / `э` open a string at once and the Russian text inside stays. See [Keyboard layout fixer](#keyboard-layout-fixer).
+- **Smart indentation on Enter**: empty lines inside blocks keep their indentation (the indent guides are not cut), and the line after `case ...:` is indented. See [Auto indent](#auto-indent).
+- **Compilers**: a list of interpreters and compilers (`plua.compilers.list`) that check `.pluto` and `.lua` files, managed with the Add and Remove buttons. See [Compilers](#compilers).
+
+The smart delete keys (Backspace / Delete twice on `end`, Shift + Backspace and Shift + Delete by pieces) and the automatic `end` work in `.lua` files too, except for what only Pluto has (`class`, `switch`, `try`, `enum`, `->`).
 
 ### Diagnostics and checks
 
@@ -56,8 +61,8 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
   - errors and warnings of the Pluto compiler, which checks the code without running it (`plutoc -p -`; with only the `pluto` interpreter, the code is compiled with `load` and never called);
   - built-in checks that need no compiler: `require("...")` of a module that doesn't exist in the workspace, calls with fewer arguments than the function has required parameters (parameters with `?` or `= default` are optional), and in `info.json`: a missing `id`, an `entry` file that doesn't exist, and `dependencies` with unknown ids.
 
-  The compiler is taken from `pluto.diagnostics.compilerPath`; when that is empty, from the workspace (`pluto/*/plutoc.exe`, `bin/pluto/*/plutoc.exe`, `tools/pluto/...`; the newest version wins, `plutoc` before `pluto`), then from `PATH`. If none is found, only the built-in checks run. The compiler in use is logged in the **Pluto** output channel. In untrusted workspaces no compiler is run.
-- **Lua syntax check**: with `pluto.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
+  The compiler is taken from `plua.diagnostics.compilerPath`; when that is empty, from the workspace (`pluto/*/plutoc.exe`, `bin/pluto/*/plutoc.exe`, `tools/pluto/...`; the newest version wins, `plutoc` before `pluto`), then from `PATH`. If none is found, only the built-in checks run. The compiler in use is logged in the **Pluto** output channel. In untrusted workspaces no compiler is run.
+- **Lua syntax check**: with `plua.lua.enable` on, `.lua` files are checked for syntax errors by a Lua interpreter (`luac`, `lua` or `luajit`) found in `bin/lua`, `tools/lua` and similar folders of the workspace, or on the `PATH`. The code is only compiled, never run.
 - **Paths of files in JSON files**: a path such as `"entry": "src/main.pluto"` that points to a missing file gets a warning, with a quick fix when the file was only moved. See [JSON path checks](#json-path-checks).
 
 ### Configuration
@@ -66,7 +71,7 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 
 ### Lua files and the index
 
-The language features also work in `.lua` files (switch them off with `pluto.lua.enable`, e.g. when `sumneko.lua` is installed; the compiler check only runs on `.pluto` files). All `.pluto` and `.lua` files of the workspace are indexed in the background and kept up to date as you edit. Files matched by `.gitignore`, `.plutoignore` or the exclude settings below are left out: they don't show up in completion, hover or Go to Definition of other files, and the index follows along when an ignore file changes. An excluded file that you open still gets all features for its own code. This is a lightweight index, not a full language server: types are only inferred from type hints, `new Class(...)` and `require`.
+The language features also work in `.lua` files (switch them off with `plua.lua.enable`, e.g. when `sumneko.lua` is installed; the compiler check only runs on `.pluto` files). All `.pluto` and `.lua` files of the workspace are indexed in the background and kept up to date as you edit. Files matched by `.gitignore`, `.plutoignore` or the exclude settings below are left out: they don't show up in completion, hover or Go to Definition of other files, and the index follows along when an ignore file changes. An excluded file that you open still gets all features for its own code. This is a lightweight index, not a full language server: types are only inferred from type hints, `new Class(...)` and `require`.
 
 ### Snippets
 
@@ -82,102 +87,124 @@ The language features also work in `.lua` files (switch them off with `pluto.lua
 
 ### Languages (English and Russian)
 
-The messages of the extension (labels in hovers and completion, built-in diagnostics, status and output texts) come in English and Russian. `pluto.language` is `auto` by default: Russian when the display language of the editor is Russian (`ru`, `ru-RU`), English otherwise. Set it to `en` or `ru` to pin the language; it changes on the fly, no reload needed. The names and descriptions of settings and commands are localized by VS Code itself through `package.nls.json` / `package.nls.ru.json` and follow its display language (*Configure Display Language*). Texts of the Pluto compiler and the built-in library documentation stay in English.
+The messages of the extension (labels in hovers and completion, built-in diagnostics, status and output texts) come in English and Russian. `plua.language` is `auto` by default: Russian when the display language of the editor is Russian (`ru`, `ru-RU`), English otherwise. Set it to `en` or `ru` to pin the language; it changes on the fly, no reload needed. The names and descriptions of settings and commands are localized by VS Code itself through `package.nls.json` / `package.nls.ru.json` and follow its display language (*Configure Display Language*). Texts of the Pluto compiler and the built-in library documentation stay in English.
 
 ### Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `pluto.language` | `auto` | Language of the extension's messages: `auto` (follow the editor), `en` or `ru`. |
-| `pluto.index.enabled` | `true` | Index the whole workspace; otherwise only open files are analyzed. |
-| `pluto.lua.enable` | `true` | Language features (completion, hover, go to definition, signature help, outline, folding, diagnostics) for `.lua` files. Turn off if e.g. `sumneko.lua` already provides them; takes effect immediately. |
-| `pluto.lua.indexFiles` | `true` | Read `.lua` files into the index so Pluto code gets completion and navigation into the Lua modules it requires. Independent of `pluto.lua.enable`. |
-| `pluto.index.includeLua` | `true` | Deprecated, use `pluto.lua.indexFiles`. Still honored: when `false`, `.lua` files are not indexed. |
-| `pluto.workspace.useGitignore` | `true` | Leave files matched by `.gitignore` out of the index. |
-| `pluto.workspace.ignoreFiles` | `[".gitignore", ".plutoignore", ".luaignore"]` | Ignore files (`.gitignore` syntax) in the workspace root to read exclusions from. |
-| `pluto.workspace.exclude` | `[]` | Glob patterns to leave out of the index, e.g. `**/vendor/**`. |
-| `pluto.workspace.useSearchExclude` | `true` | Also apply `search.exclude`. `files.exclude` always applies. |
-| `pluto.index.maxFiles` | `5000` | Maximum number of files to index. |
-| `pluto.completion.keywords` | `true` | Suggest keywords. |
-| `pluto.completion.documentWords` | `true` | Suggest other words of the current document. |
-| `pluto.completion.autoTriggerTypes` | `true` | Open the list of types by itself after `:` in type hints (`a: `, `): `, `local x: `), in Pluto files only. |
-| `pluto.completion.defaultValues` | `true` | Suggest the values a parameter can get as its default (`= false`, `= 0`, `= nil`, ...) after its type. |
-| `pluto.completion.defaultValuesDelayMs` | `800` | How long the cursor has to rest after the type before that list opens by itself. `0` = only on `Ctrl+Space`. |
-| `pluto.highlight.paramNoDefault` | `true` | Yellow wavy line under the type of the parameter the cursor is on when it has no default value. |
-| `pluto.highlight.paramNoDefaultColor` | `#E5C07B` | Color of that line in dark and high contrast themes. |
-| `pluto.highlight.paramNoDefaultLightColor` | `#BF8803` | Its color in light themes. |
-| `pluto.highlight.nullableTypes` | `true` | Highlight nullable types (`int?`, `?string`, `Vehicle?`). |
-| `pluto.highlight.nullableTypeColor` | `#FFFFFF` | Their color in dark and high contrast themes. |
-| `pluto.highlight.nullableTypeLightColor` | `#000000` | Their color in light themes. |
-| `pluto.highlight.applyColors` | `false` | Apply the colors below to Pluto files (off = the colors of your theme). |
-| `pluto.highlight.colors` | `{}` | Color and style per kind of token, see [Highlight colors](#highlight-colors). |
-| `pluto.highlight.tableBracketColors` | `[]` | Colors of the braces `{ }` of tables by nesting depth. |
-| `pluto.lua.checkSyntax` | `true` | Check `.lua` files for syntax errors with a Lua interpreter (needs `pluto.lua.enable`). |
-| `pluto.lua.compilerPath` | `""` | Path to `luac` / `lua` / `luajit`. Empty = search `bin/lua`, `tools/lua`... of the workspace, then the `PATH`. |
-| `pluto.json.enable` | `true` | Check the paths of files in JSON files. |
-| `pluto.json.files` | `["**/info.json"]` | Glob patterns of the JSON files to check. |
-| `pluto.json.extensions` | `[".pluto", ".lua"]` | Extensions of the files whose paths are checked. |
-| `pluto.json.checkAllPaths` | `false` | Also check paths of files with any extension found in the project folder. |
-| `pluto.json.severity` | `warning` | `warning`, `error` or `information`. |
-| `pluto.json.notifyNoFolder` | `true` | Tell once per window that without an open folder paths are checked only next to the JSON file. |
-| `pluto.format.multilineParams` | `true` | Smart formatting of multi-line parameter lists of functions. |
-| `pluto.format.multilineTables` | `true` | Smart formatting of multi-line tables. |
-| `pluto.format.newLineAfterComma` | `true` | Start a new line after a comma typed at the end of an element of a multi-line list, unless you go on typing. |
-| `pluto.format.newLineAfterCommaDelayMs` | `700` | Pause before that line starts; typing or moving the cursor cancels it. `0` = at once. |
-| `pluto.format.suggestParens` | `true` | Grey `()` after `function`; `Tab` takes it and puts the cursor between the brackets. |
-| `pluto.format.suggestTableKeyAssign` | `true` | Grey ` = ` after the key `["name"]` of a table field. |
-| `pluto.format.suggestBlockWords` | `true` | Grey ` then` after `if` / `elseif` and ` do` after `while` / `for` headers. |
-| `pluto.format.fixMismatchedBrackets` | `suggest` | A closer that does not fit (`{ ]`): `off`, `suggest` (underline and quick fix) or `auto` (also replaced by itself after a pause). |
-| `pluto.format.fixMismatchedBracketsDelayMs` | `1200` | The pause before `auto` replaces the closer. `0` = at once. |
-| `pluto.diagnostics.duplicateParams` | `warning` | A name written twice in parameters (`function f(a, a)`) or a key twice in a table: `warning`, `error` or `off`. |
-| `pluto.format.ifBlockWord` | `auto` | Which word is suggested after `if` / `elseif`: `then`, `do` (both are valid in Pluto), `off`, or `auto` (what your file and workspace use). |
-| `pluto.format.suggestFor` | `true` | Suggestions while the header of a `for` is written. |
-| `pluto.format.nameStyle` | `short` | Variable names in those suggestions: `short` (`i`, `k`, `v`, `t`) or `full` (`index`, `key`, `value`, `table_name`). |
-| `pluto.format.names` | `{}` | Your own words for `index`, `key`, `value` and `table` in those suggestions. |
-| `pluto.hover.forPreview` | `true` | Hovering a numeric `for` shows the values the variable goes through. |
-| `pluto.format.suggestParamType` | `true` | A grey `:` after the name of a parameter that has no type; `Tab` inserts `: ` and opens the list of types. |
-| `pluto.format.suggestParamTypeDelayMs` | `600` | The pause before such a grey colon (also after the `)` of a function and after a `case`) is shown. `0` = at once. |
-| `pluto.format.suggestReturnType` | `true` | A grey `: ` after the `)` of a function that has no return type. |
-| `pluto.format.suggestReturnValue` | `true` | The values that fit the return type after `return `. |
-| `pluto.format.suggestCaseColon` | `true` | A grey `:` after the values of a `case`. |
-| `pluto.format.suggestCaseBreak` | `true` | A grey `break` in the body of a `case` that nothing ends. |
-| `pluto.format.suggestCaseWords` | `true` | A grey `case ` / `default:` at the level of the cases of a `switch`. |
-| `pluto.format.suggestConstructor` | `true` | A grey `__construct` in a class that has none. |
-| `pluto.highlight.paramNoType` | `true` | A yellow line under the name of a parameter that has no type, while the cursor is on it. |
-| `pluto.highlight.caseNoColon` | `true` | A yellow line under a `case` that has no `:`, while the cursor is on its line. |
-| `pluto.diagnostics.returnTypes` | `warning` | A function that says it returns a type but never uses `return`, and a `void` function that returns a value: `warning`, `error` or `off`. |
-| `pluto.diagnostics.caseFallthrough` | `off` | `hint` marks a `case` that nothing ends and that runs into the next one. |
-| `pluto.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
-| `pluto.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
-| `pluto.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
-| `pluto.hover.maxDeclarations` | `8` | How many declarations a hover lists when several share a name; a link opens all of them in the references peek. |
-| `pluto.hover.maxBodyLines` | `25` | Longest function source shown in hovers; longer ones are cut with `-- ... (+N lines)` (`(+N строк)` in Russian). `0` = no limit. |
-| `pluto.outline.showFunctionBody` | `true` | Show the contents of functions in the Outline (locals, nested functions, callbacks, calls). |
-| `pluto.outline.maxFileLines` | `1000` | In larger files, show only classes, methods and function signatures. `0` = no limit. |
-| `pluto.outline.calls` | `none` | List calls inside functions: `none`, `statements` (call statements and `return`), or `all` (also calls inside expressions, once per callee). |
-| `pluto.outline.localVariables` | `true` | Show variables declared inside functions in the Outline. |
-| `pluto.outline.loopVariables` | `false` | Show `for` loop variables in the Outline. |
-| `pluto.outline.parameters` | `false` | Show function parameters in the Outline. |
-| `pluto.outline.anonymousFunctions` | `true` | Show callbacks such as `scheduler:add() callback` in the Outline. |
-| `pluto.outline.fields` | `true` | Show `self.x = ...` fields as class members in the Outline. |
-| `pluto.outline.showValues` | `true` | Show initial values next to variables and fields, e.g. `count = 0`. |
-| `pluto.diagnostics.enable` | `true` | Show compiler errors and built-in checks in the editor and the Problems panel. |
-| `pluto.diagnostics.compilerPath` | `""` | Path to `plutoc`/`pluto`, e.g. `${workspaceFolder}/bin/pluto/0.13.2/plutoc.exe`. Empty = search the workspace, then `PATH`. |
-| `pluto.diagnostics.debounceMs` | `400` | Delay after the last edit before a file is checked again. |
+| `plua.language` | `auto` | Language of the extension's messages: `auto` (follow the editor), `en` or `ru`. |
+| `plua.index.enabled` | `true` | Index the whole workspace; otherwise only open files are analyzed. |
+| `plua.lua.enable` | `true` | Language features (completion, hover, go to definition, signature help, outline, folding, diagnostics) for `.lua` files. Turn off if e.g. `sumneko.lua` already provides them; takes effect immediately. |
+| `plua.lua.indexFiles` | `true` | Read `.lua` files into the index so Pluto code gets completion and navigation into the Lua modules it requires. Independent of `plua.lua.enable`. |
+| `plua.index.includeLua` | `true` | Deprecated, use `plua.lua.indexFiles`. Still honored: when `false`, `.lua` files are not indexed. |
+| `plua.workspace.useGitignore` | `true` | Leave files matched by `.gitignore` out of the index. |
+| `plua.workspace.ignoreFiles` | `[".gitignore", ".plutoignore", ".luaignore"]` | Ignore files (`.gitignore` syntax) in the workspace root to read exclusions from. |
+| `plua.workspace.exclude` | `[]` | Glob patterns to leave out of the index, e.g. `**/vendor/**`. |
+| `plua.workspace.useSearchExclude` | `true` | Also apply `search.exclude`. `files.exclude` always applies. |
+| `plua.index.maxFiles` | `5000` | Maximum number of files to index. |
+| `plua.completion.keywords` | `true` | Suggest keywords. |
+| `plua.completion.documentWords` | `true` | Suggest other words of the current document. |
+| `plua.completion.autoTriggerTypes` | `true` | Open the list of types by itself after `:` in type hints (`a: `, `): `, `local x: `), in Pluto files only. |
+| `plua.completion.defaultValues` | `true` | Suggest the values a parameter can get as its default (`= false`, `= 0`, `= nil`, ...) after its type. |
+| `plua.completion.defaultValuesDelayMs` | `800` | How long the cursor has to rest after the type before that list opens by itself. `0` = only on `Ctrl+Space`. |
+| `plua.highlight.paramNoDefault` | `true` | Yellow wavy line under the type of the parameter the cursor is on when it has no default value. |
+| `plua.highlight.paramNoDefaultColor` | `#E5C07B` | Color of that line in dark and high contrast themes. |
+| `plua.highlight.paramNoDefaultLightColor` | `#BF8803` | Its color in light themes. |
+| `plua.highlight.nullableTypes` | `true` | Highlight nullable types (`int?`, `?string`, `Vehicle?`). |
+| `plua.highlight.nullableTypeColor` | `#FFFFFF` | Their color in dark and high contrast themes. |
+| `plua.highlight.nullableTypeLightColor` | `#000000` | Their color in light themes. |
+| `plua.highlight.applyColors` | `false` | Apply the colors below to Pluto files (off = the colors of your theme). |
+| `plua.highlight.colors` | `{}` | Color and style per kind of token, see [Highlight colors](#highlight-colors). |
+| `plua.highlight.tableBracketColors` | `[]` | Colors of the braces `{ }` of tables by nesting depth. |
+| `plua.lua.checkSyntax` | `true` | Check `.lua` files for syntax errors with a Lua interpreter (needs `plua.lua.enable`). |
+| `plua.lua.compilerPath` | `""` | Path to `luac` / `lua` / `luajit`. Empty = search `bin/lua`, `tools/lua`... of the workspace, then the `PATH`. |
+| `plua.json.enable` | `true` | Check the paths of files in JSON files. |
+| `plua.json.files` | `["**/info.json"]` | Glob patterns of the JSON files to check. |
+| `plua.json.extensions` | `[".pluto", ".lua"]` | Extensions of the files whose paths are checked. |
+| `plua.json.checkAllPaths` | `false` | Also check paths of files with any extension found in the project folder. |
+| `plua.json.severity` | `warning` | `warning`, `error` or `information`. |
+| `plua.json.notifyNoFolder` | `true` | Tell once per window that without an open folder paths are checked only next to the JSON file. |
+| `plua.format.multilineParams` | `true` | Smart formatting of multi-line parameter lists of functions. |
+| `plua.format.multilineTables` | `true` | Smart formatting of multi-line tables. |
+| `plua.format.newLineAfterComma` | `true` | Start a new line after a comma typed at the end of an element of a multi-line list, unless you go on typing. |
+| `plua.format.newLineAfterCommaDelayMs` | `700` | Pause before that line starts; typing or moving the cursor cancels it. `0` = at once. |
+| `plua.format.suggestParens` | `true` | Grey `()` after `function`; `Tab` takes it and puts the cursor between the brackets. |
+| `plua.format.suggestTableKeyAssign` | `true` | Grey ` = ` after the key `["name"]` of a table field. |
+| `plua.format.suggestBlockWords` | `true` | Grey ` then` after `if` / `elseif` and ` do` after `while` / `for` headers. |
+| `plua.format.fixMismatchedBrackets` | `suggest` | A closer that does not fit (`{ ]`): `off`, `suggest` (underline and quick fix) or `auto` (also replaced by itself after a pause). |
+| `plua.format.fixMismatchedBracketsDelayMs` | `1200` | The pause before `auto` replaces the closer. `0` = at once. |
+| `plua.diagnostics.duplicateParams` | `warning` | A name written twice in parameters (`function f(a, a)`) or a key twice in a table: `warning`, `error` or `off`. |
+| `plua.format.ifBlockWord` | `auto` | Which word is suggested after `if` / `elseif`: `then`, `do` (both are valid in Pluto), `off`, or `auto` (what your file and workspace use). |
+| `plua.format.suggestFor` | `true` | Suggestions while the header of a `for` is written. |
+| `plua.format.nameStyle` | `short` | Variable names in those suggestions: `short` (`i`, `k`, `v`, `t`) or `full` (`index`, `key`, `value`, `table_name`). |
+| `plua.format.names` | `{}` | Your own words for `index`, `key`, `value` and `table` in those suggestions. |
+| `plua.hover.forPreview` | `true` | Hovering a numeric `for` shows the values the variable goes through. |
+| `plua.format.suggestParamType` | `true` | A grey `:` after the name of a parameter that has no type; `Tab` inserts `: ` and opens the list of types. |
+| `plua.format.suggestParamTypeDelayMs` | `600` | The pause before such a grey colon (also after the `)` of a function; the colon of a `case` is shown at once) is shown. `0` = at once. |
+| `plua.format.suggestReturnType` | `true` | A grey `: ` after the `)` of a function that has no return type. |
+| `plua.format.suggestReturnValue` | `true` | The values that fit the return type after `return `. |
+| `plua.format.suggestCaseColon` | `true` | A grey `:` after the values of a `case`. |
+| `plua.format.suggestCaseBreak` | `true` | A grey `break` in the body of a `case` that nothing ends. |
+| `plua.format.suggestCaseWords` | `true` | A grey `case ` / `default:` at the level of the cases of a `switch`. |
+| `plua.format.suggestConstructor` | `true` | A grey `__construct` in a class that has none. |
+| `plua.highlight.paramNoType` | `true` | A yellow line under the name of a parameter that has no type, while the cursor is on it. |
+| `plua.highlight.caseNoColon` | `true` | A yellow line under a `case` that has no `:`, while the cursor is on its line. |
+| `plua.diagnostics.returnTypes` | `warning` | A function that says it returns a type but never uses `return`, and a `void` function that returns a value: `warning`, `error` or `off`. |
+| `plua.diagnostics.caseFallthrough` | `off` | `hint` marks a `case` that nothing ends and that runs into the next one. |
+| `plua.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
+| `plua.quickDeleteEnd` | `true` | Backspace / Delete twice in a row on a line with only `end` removes the line and puts the cursor at the end of the line above. |
+| `plua.quickDeleteEndDoubleMs` | `1500` | How long after the first press the second one still counts, in milliseconds. |
+| `plua.shiftDeleteFromNextLine` | `true` | Shift + Delete on an empty line deletes pieces of the nearest line with text below it (an `end` is one piece). |
+| `plua.renameClassPeek` | `true` | F2 on a class name renames the declaration and the `extends` of its heirs; a peek window lists those places first. |
+| `plua.heirsPeek` | `true` | Selecting a class name opens a peek window with the classes that extend it (down the chain of `extends`) when they are out of sight. |
+| `plua.heirsPeekDelayMs` | `400` | How long the selection has to stay before that window opens, in milliseconds. |
+| `plua.backspaceRemovesBlankLine` | `true` | Backspace on a line with only spaces or tabs removes the whole line; the cursor goes to the end of the line above. |
+| `plua.shiftDeleteByPieces` | `true` | Shift + Delete deletes one piece of the line per press: `name`, then `.`, then `self`. |
+| `plua.shiftBackspaceDeleteFromBelow.enabled` | `true` | Shift + Backspace deletes code from below, one token per press: the end of the line below the cursor (the indentation stays), then the emptied line. |
+| `plua.hover.sourcePath` | `short` | How links to declarations in other files look: `short`, `relative` or `none`. |
+| `plua.hover.showFunctionBody` | `true` | Show the source of a function below its signature in hovers. |
+| `plua.hover.maxDeclarations` | `8` | How many declarations a hover lists when several share a name; a link opens all of them in the references peek. |
+| `plua.hover.maxBodyLines` | `25` | Longest function source shown in hovers; longer ones are cut with `-- ... (+N lines)` (`(+N строк)` in Russian). `0` = no limit. |
+| `plua.outline.showFunctionBody` | `true` | Show the contents of functions in the Outline (locals, nested functions, callbacks, calls). |
+| `plua.outline.maxFileLines` | `1000` | In larger files, show only classes, methods and function signatures. `0` = no limit. |
+| `plua.outline.calls` | `none` | List calls inside functions: `none`, `statements` (call statements and `return`), or `all` (also calls inside expressions, once per callee). |
+| `plua.outline.localVariables` | `true` | Show variables declared inside functions in the Outline. |
+| `plua.outline.loopVariables` | `false` | Show `for` loop variables in the Outline. |
+| `plua.outline.parameters` | `false` | Show function parameters in the Outline. |
+| `plua.outline.anonymousFunctions` | `true` | Show callbacks such as `scheduler:add() callback` in the Outline. |
+| `plua.outline.fields` | `true` | Show `self.x = ...` fields as class members in the Outline. |
+| `plua.outline.showValues` | `true` | Show initial values next to variables and fields, e.g. `count = 0`. |
+| `plua.diagnostics.enable` | `true` | Show compiler errors and built-in checks in the editor and the Problems panel. |
+| `plua.diagnostics.compilerPath` | `""` | Path to `plutoc`/`pluto`, e.g. `${workspaceFolder}/bin/pluto/0.13.2/plutoc.exe`. Empty = search the workspace, then `PATH`. |
+| `plua.compilers.list` | `[]` | Interpreters and compilers that check code: entries `{ "language": "pluto" or "lua", "path": "..." }`. The first existing entry of a language is used, then `plua.diagnostics.compilerPath` / `plua.lua.compilerPath`, then the search. A machine setting: a workspace cannot choose the program. |
+| `plua.layoutFixer.enabled` | `true` | Fix text typed on the wrong (Cyrillic) layout. |
+| `plua.layoutFixer.mode` | `live` | `live` (every key at once), `allCodeWords` (a word when a space or a sign ends it), `keywordsOnly` (only Pluto/Lua keywords), `off` (only the command). |
+| `plua.layoutFixer.baseKeyboardProfile` | `physicalQwerty` | `physicalQwerty` (strict physical keys), `hybridSmart` (letters, quotes, brackets, `;` `:`), `keepLocalPunctuation` (letters and quotes only). |
+| `plua.layoutFixer.sourceLayouts` | `["ru"]` | Layouts to convert from: `ru`, `uk`, `be`. |
+| `plua.layoutFixer.ignoreComments` | `true` | Do not convert inside comments. |
+| `plua.layoutFixer.ignoreStrings` | `true` | Do not convert inside strings. |
+| `plua.layoutFixer.autoCloseCyrillicQuotes` | `true` | `Э` / `э` close a string opened with `"` / `'` (not an empty one). |
+| `plua.layoutFixer.customMap` | `{}` | Your own conversions over the profile, one character to one text. |
+| `plua.autoIndent.enabled` | `true` | Smart indentation on Enter. |
+| `plua.autoIndent.preserveEmptyLines` | `true` | Empty lines inside blocks keep the indentation of the block when Enter is pressed. |
+| `plua.autoIndent.indentAfterCase` | `true` | Indent the line after `case ...:` and `default:`. |
+| `plua.autoIndent.trimOnSave` | `false` | Remove the whitespace of empty lines when saving. |
+| `plua.diagnostics.debounceMs` | `400` | Delay after the last edit before a file is checked again. |
 
 ### Highlight colors
 
-The extension does not change how your theme looks until you turn this on. Set `pluto.highlight.applyColors` to `true` and describe only the kinds of tokens you want to recolor:
+The extension does not change how your theme looks until you turn this on. Set `plua.highlight.applyColors` to `true` and describe only the kinds of tokens you want to recolor:
 
 ```jsonc
-"pluto.highlight.applyColors": true,
-"pluto.highlight.colors": {
+"plua.highlight.applyColors": true,
+"plua.highlight.colors": {
     "functionName": { "color": "#FF8800", "fontStyle": "bold" },
     "parameter":    { "color": "#9CDCFE", "fontStyle": "italic" },
     "returnType":   { "color": "#4EC9B0" },
     "keyword":      "#C586C0"                   // short form: a color, optionally followed by bold / italic / underline / strikethrough
 },
-"pluto.highlight.tableBracketColors": ["#E6B450", "#59C2FF", "#AAD94C"]
+"plua.highlight.tableBracketColors": ["#E6B450", "#59C2FF", "#AAD94C"]
 ```
 
 Each entry is either an object with `color` and `fontStyle`, or a short string such as `"#FF8800 bold"`. In `settings.json` the `color` of the object form gets a color picker (click the swatch next to the value). `fontStyle` is one of `normal`, `bold`, `italic`, `bold italic`, `underline`, `bold underline`, `italic underline`. A color can carry transparency (`#FF880080`).
@@ -189,7 +216,7 @@ Each entry is either an object with `color` and `fontStyle`, or a short string s
 "functionName": { "darkColor": "#FFD866", "lightColor": "#8A6500" }
 ```
 
-`color` is used in every theme, `darkColor` overrides it in dark and high contrast themes, `lightColor` in light and high contrast light themes. A color that is not set falls back to `color`; if there is none for the current kind of theme, the color of the theme stays. All three get a color picker, and the colors are switched by themselves when you change the theme. The same object form works in `pluto.highlight.tableBracketColors`. The short string form (`"#FF8800 bold"`) has one color for every theme.
+`color` is used in every theme, `darkColor` overrides it in dark and high contrast themes, `lightColor` in light and high contrast light themes. A color that is not set falls back to `color`; if there is none for the current kind of theme, the color of the theme stays. All three get a color picker, and the colors are switched by themselves when you change the theme. The same object form works in `plua.highlight.tableBracketColors`. The short string form (`"#FF8800 bold"`) has one color for every theme.
 
 A wrong value is never applied: the color of your theme stays, and the extension shows a warning that names the setting and the value, with a button that opens `settings.json`. This covers a value that is not a color or style (`"blue"`, a typo in `fontStyle`), a fully transparent color (`#0000`, `#00000000`), which would make the text invisible, and an unknown key (`"functonName"`). An empty string `""` simply means "not set".
 
@@ -207,11 +234,11 @@ A wrong value is never applied: the color of your theme stays, and the extension
 | `modifier` | `local`, `public`, `private`, `static`, ... |
 | `accessor` | The `.` between names, as in `a.b.c`. |
 
-`pluto.highlight.tableBracketColors` colors the braces `{ }` of nested tables by depth: the first entry is for the outermost table, the next one for the table inside it, and so on. A list shorter than the depth repeats, and up to 8 levels are told apart. Entries are written like above, e.g. `[{ "color": "#E6B450", "fontStyle": "bold" }, "#59C2FF"]`.
+`plua.highlight.tableBracketColors` colors the braces `{ }` of nested tables by depth: the first entry is for the outermost table, the next one for the table inside it, and so on. A list shorter than the depth repeats, and up to 8 levels are told apart. Entries are written like above, e.g. `[{ "color": "#E6B450", "fontStyle": "bold" }, "#59C2FF"]`.
 
-The extension keeps these colors as rules named `Pluto: ...` in `editor.tokenColorCustomizations` of your user settings. Your own rules there are left alone, and turning `pluto.highlight.applyColors` off removes ours. The rules only match Pluto scopes (`....pluto`), so other languages are not affected.
+The extension keeps these colors as rules named `Pluto: ...` in `editor.tokenColorCustomizations` of your user settings. Your own rules there are left alone, and turning `plua.highlight.applyColors` off removes ours. The rules only match Pluto scopes (`....pluto`), so other languages are not affected.
 
-[demo-highlight.pluto](demo-highlight.pluto) in this repository contains every kind of token to look at while tuning the colors. Nullable types (`int?`) have their own settings, `pluto.highlight.nullableTypeColor` and `pluto.highlight.nullableTypeLightColor`, because they are colored on top of the theme.
+[demo-highlight.pluto](demo-highlight.pluto) in this repository contains every kind of token to look at while tuning the colors. Nullable types (`int?`) have their own settings, `plua.highlight.nullableTypeColor` and `plua.highlight.nullableTypeLightColor`, because they are colored on top of the theme.
 
 ### JSON path checks
 
@@ -227,13 +254,13 @@ Strings in a JSON file that look like the path of a file are checked. By default
 
 - **Where it looks:** a path is valid when the file exists next to the JSON file or relative to a workspace folder (or when it is absolute). Files excluded by `.gitignore`, `.plutoignore`, `.luaignore` or `files.exclude` still count as existing when they are on the disk.
 - **Moved files:** when the file is missing but a file with that name exists elsewhere in the project, the warning names it, and a quick fix (`Ctrl+.`) replaces the path with the one relative to the JSON file. The nearest file, and the one whose path ends like the written one, comes first.
-- **Which JSON files:** `pluto.json.files` is a list of glob patterns relative to the workspace folder, e.g. `["**/info.json", "config/*.json"]`, or `["**/*.json"]` for all of them. The `id`, `entry`/`main` and `dependencies` of a module manifest (`info.json`) are always checked.
-- **Other files:** `pluto.json.extensions` lists the extensions that are checked. With `pluto.json.checkAllPaths` every extension found among the files of the project folder (`.png`, `.txt`, ...) is checked too; for this the names of all files are read once, without the ignored ones.
-- **No folder open:** without a project folder (a single JSON file) only the neighbourhood of the file on the disk is searched, and there are no "did you mean" hints. The extension tells it once per window with a notification (turn it off with `pluto.json.notifyNoFolder`).
+- **Which JSON files:** `plua.json.files` is a list of glob patterns relative to the workspace folder, e.g. `["**/info.json", "config/*.json"]`, or `["**/*.json"]` for all of them. The `id`, `entry`/`main` and `dependencies` of a module manifest (`info.json`) are always checked.
+- **Other files:** `plua.json.extensions` lists the extensions that are checked. With `plua.json.checkAllPaths` every extension found among the files of the project folder (`.png`, `.txt`, ...) is checked too; for this the names of all files are read once, without the ignored ones.
+- **No folder open:** without a project folder (a single JSON file) only the neighbourhood of the file on the disk is searched, and there are no "did you mean" hints. The extension tells it once per window with a notification (turn it off with `plua.json.notifyNoFolder`).
 
 ### Ignore files
 
-The files that match `.gitignore`, `.plutoignore` or `.luaignore` (all in the workspace root, `.gitignore` syntax; the list is `pluto.workspace.ignoreFiles`) are not indexed, so they get no completion or navigation. `pluto.workspace.exclude` adds glob patterns, and `files.exclude` and `search.exclude` apply as well.
+The files that match `.gitignore`, `.plutoignore` or `.luaignore` (all in the workspace root, `.gitignore` syntax; the list is `plua.workspace.ignoreFiles`) are not indexed, so they get no completion or navigation. `plua.workspace.exclude` adds glob patterns, and `files.exclude` and `search.exclude` apply as well.
 
 ### Lua interpreter
 
@@ -244,11 +271,11 @@ The files that match `.gitignore`, `.plutoignore` or `.luaignore` (all in the wo
   </picture>
 </p>
 
-While `pluto.lua.enable` is on, `.lua` files are checked for syntax errors by a Lua interpreter, in the same way `plutoc` checks `.pluto` files. The interpreter is `pluto.lua.compilerPath`, else `luac`, `lua` or `luajit` in `bin/lua`, `tools/lua`, `lua5.4` and similar folders of the workspace (`luac`, which only parses, is preferred; the newest version wins), else the `PATH`. With `lua` or `luajit` the code is compiled with `load` and never run. A workspace has to be trusted for a program from it to be started. Turn this off with `pluto.lua.checkSyntax`.
+While `plua.lua.enable` is on, `.lua` files are checked for syntax errors by a Lua interpreter, in the same way `plutoc` checks `.pluto` files. The interpreter is the first Lua entry of `plua.compilers.list`, else `plua.lua.compilerPath`, else `luac`, `lua` or `luajit` in `bin/lua`, `tools/lua`, `lua5.4` and similar folders of the workspace (`luac`, which only parses, is preferred; the newest version wins), else the `PATH`. With `lua` or `luajit` the code is compiled with `load` and never run. A workspace has to be trusted for a program from it to be started. Turn this off with `plua.lua.checkSyntax`.
 
 ### Multi-line parameters and tables
 
-For `.pluto` and `.lua` files (the Lua files while `pluto.lua.enable` is on). It only works on a list that is already written on several lines, i.e. whose closing `)` or `}` is on a line of its own below the opening one, and does nothing for one-line lists.
+For `.pluto` and `.lua` files (the Lua files while `plua.lua.enable` is on). It only works on a list that is already written on several lines, i.e. whose closing `)` or `}` is on a line of its own below the opening one, and does nothing for one-line lists.
 
 **The first element moves to its own line.** If you start typing the first parameter or field right after the opening bracket, it moves to the next line, one level deeper than the line with the bracket:
 
@@ -284,7 +311,7 @@ function name(
 )
 ```
 
-It is careful not to break your code: strings and comments are skipped; nested tables and lists work on their own level; a line that ends with an opening bracket or an unfinished expression (`a = 1 +`) gets no comma; `...` stays the last parameter without a comma; statements inside a function in a table, the body of a lambda (`-> int { ... }`) and the arguments of a call are left alone; and the automatic `end` keeps working. Both can be turned off, `pluto.format.multilineParams` for parameter lists and `pluto.format.multilineTables` for tables.
+It is careful not to break your code: strings and comments are skipped; nested tables and lists work on their own level; a line that ends with an opening bracket or an unfinished expression (`a = 1 +`) gets no comma; `...` stays the last parameter without a comma; statements inside a function in a table, the body of a lambda (`-> int { ... }`) and the arguments of a call are left alone; and the automatic `end` keeps working. Both can be turned off, `plua.format.multilineParams` for parameter lists and `plua.format.multilineTables` for tables.
 
 ### Default values of parameters
 
@@ -294,7 +321,7 @@ While you write the parameters of a function declaration in a Pluto file, a para
 function name(test: bool|)          -- the cursor is right after the type
 ```
 
-- **Yellow line.** The type (`bool`) gets a yellow wavy line while the cursor is on the parameter; hover it for a tooltip such as ``` `test` has no default value. You can give it `= false`, `= true`. ``` The line goes away when the cursor leaves the parameter or a comma is typed, and it is not shown for a parameter that already has `= value`, for a parameter without a type, or for a type that is still being typed (`bo`). It is a hint of the editor, not a message in the Problems panel. Switch it off with `pluto.highlight.paramNoDefault`; its colors are `pluto.highlight.paramNoDefaultColor` and `pluto.highlight.paramNoDefaultLightColor`.
+- **Yellow line.** The type (`bool`) gets a yellow wavy line while the cursor is on the parameter; hover it for a tooltip such as ``` `test` has no default value. You can give it `= false`, `= true`. ``` The line goes away when the cursor leaves the parameter or a comma is typed, and it is not shown for a parameter that already has `= value`, for a parameter without a type, or for a type that is still being typed (`bo`). It is a hint of the editor, not a message in the Problems panel. Switch it off with `plua.highlight.paramNoDefault`; its colors are `plua.highlight.paramNoDefaultColor` and `plua.highlight.paramNoDefaultLightColor`.
 - **Values by type.** With the cursor right after the type (or after a space behind it) the list of suggestions starts with the values that fit, inserted as ` = value`:
 
   | Type | Suggested |
@@ -312,13 +339,13 @@ function name(test: bool|)          -- the cursor is right after the type
   | `int\|string` | the values of each member |
 
   The types stay in the list behind them (`bool` can still become `boolean`). Press `Ctrl+Space` to open the list yourself.
-- **By itself.** If the cursor rests right after the type for `pluto.completion.defaultValuesDelayMs` (800 ms), the list opens without a key. Moving the cursor or typing starts the wait again, and the list is not opened twice for the same place. Set the delay to `0` to switch this off, or `pluto.completion.defaultValues` to `false` to switch off the values altogether.
+- **By itself.** If the cursor rests right after the type for `plua.completion.defaultValuesDelayMs` (800 ms), the list opens without a key. Moving the cursor or typing starts the wait again, and the list is not opened twice for the same place. Set the delay to `0` to switch this off, or `plua.completion.defaultValues` to `false` to switch off the values altogether.
 
 ### Typing helpers
 
-Small helps while you type, for `.pluto` files and, where it makes sense, `.lua` files (while `pluto.lua.enable` is on). Each one has its own setting.
+Small helps while you type, for `.pluto` files and, where it makes sense, `.lua` files (while `plua.lua.enable` is on). Each one has its own setting.
 
-**A new line after the comma.** In a multi-line parameter list or table (the closing `)` or `}` is on a line of its own below), a comma typed at the end of an element starts a new line with the indentation of the elements, as `end` appears after Enter. The new line comes after a short pause (`pluto.format.newLineAfterCommaDelayMs`, 700 ms): if you go on typing or move the cursor, it does not come, so `test: bool = false, test1` can stay on one line. One-line lists, calls and a line that already has an empty line below it are left alone.
+**A new line after the comma.** In a multi-line parameter list or table (the closing `)` or `}` is on a line of its own below), a comma typed at the end of an element starts a new line with the indentation of the elements, as `end` appears after Enter. The new line comes after a short pause (`plua.format.newLineAfterCommaDelayMs`, 700 ms): if you go on typing or move the cursor, it does not come, so `test: bool = false, test1` can stay on one line. One-line lists, calls and a line that already has an empty line below it are left alone.
 
 ```pluto
 function name(
@@ -336,14 +363,14 @@ function name(
 
 | You typed (`▮` is the cursor) | Grey suggestion | After `Tab` | Setting |
 | --- | --- | --- | --- |
-| `function▮`, `function name▮`, `local f = function▮` | `()` | `function(▮)`, the cursor is between the brackets | `pluto.format.suggestParens` |
-| `["key"]▮` at the start of a table field | ` = ` | `["key"] = ▮` | `pluto.format.suggestTableKeyAssign` |
-| `if x▮`, `elseif a and b▮` | ` then` | `if x then▮` (Enter then adds the `end`) | `pluto.format.suggestBlockWords` |
-| `while x▮`, `for i = 1, 3▮`, `for k, v in pairs(t)▮` | ` do` | `... do▮` | `pluto.format.suggestBlockWords` |
+| `function▮`, `function name▮`, `local f = function▮` | `()` | `function(▮)`, the cursor is between the brackets | `plua.format.suggestParens` |
+| `["key"]▮` at the start of a table field | ` = ` | `["key"] = ▮` | `plua.format.suggestTableKeyAssign` |
+| `if x▮`, `elseif a and b▮` | ` then` | `if x then▮` (Enter then adds the `end`) | `plua.format.suggestBlockWords` |
+| `while x▮`, `for i = 1, 3▮`, `for k, v in pairs(t)▮` | ` do` | `... do▮` | `plua.format.suggestBlockWords` |
 
 Nothing is suggested when the text is already there (`function name(`), when the header is not finished (`if a and`), in strings and comments, for a type (`x: function`), or for `local function` / `public function` without a name yet. With inline suggestions switched off, the `()` is an item of the completion list instead.
 
-**then or do after `if`.** Pluto accepts `if x then` and `if x do` (`while` and `for` only take `do`). `pluto.format.ifBlockWord` chooses what is suggested: `then`, `do`, `off`, or `auto` (the default), which counts the `if` / `elseif` headers of the current file and follows the one used more; if the file uses both equally, the rest of the workspace decides (files that are not ignored, read once and kept for a few seconds), and `then` is taken when there is nothing to go by.
+**then or do after `if`.** Pluto accepts `if x then` and `if x do` (`while` and `for` only take `do`). `plua.format.ifBlockWord` chooses what is suggested: `then`, `do`, `off`, or `auto` (the default), which counts the `if` / `elseif` headers of the current file and follows the one used more; if the file uses both equally, the rest of the workspace decides (files that are not ignored, read once and kept for a few seconds), and `then` is taken when there is nothing to go by.
 
 **Loops.** While the header of a `for` is written, the suggestions go with it (`Tab` takes the first, `Alt+]` shows the next one):
 
@@ -354,32 +381,50 @@ Nothing is suggested when the text is already there (`function name(`), when the
 | `for i = 1,▮` | `#items`, the length of the nearest table above |
 | `for i = 1, 10,▮` | the step: `1`, `2`, or `-1`, `-2` when the start is larger than the end |
 
-The nearest table of the file (`local items = { ... }`) gives the name, and its kind puts `ipairs` first for an array and `pairs` first for fields. `pluto.format.nameStyle` chooses `short` words (`i`, `k`, `v`, `t`) or `full` ones (`index`, `key`, `value`, `table_name`), and `pluto.format.names` sets your own words for any of them, e.g. `{ "value": "item" }`. All of it is `pluto.format.suggestFor`; the ready-made snippets are not affected.
+The nearest table of the file (`local items = { ... }`) gives the name, and its kind puts `ipairs` first for an array and `pairs` first for fields. `plua.format.nameStyle` chooses `short` words (`i`, `k`, `v`, `t`) or `full` ones (`index`, `key`, `value`, `table_name`), and `plua.format.names` sets your own words for any of them, e.g. `{ "value": "item" }`. All of it is `plua.format.suggestFor`; the ready-made snippets are not affected.
 
-**What a numeric loop goes through.** Hover the `for` of a loop with numbers to see the values: `for i = 1, 10, 2` shows `i` takes the values 1, 3, 5, 7, 9 (5 times, step 2). It says when the loop does not run (`for i = 5, 1`), when the step is 0, and for `for i = 1, 3, 5` that the step is larger than the distance, so the loop runs once. `pluto.hover.forPreview` switches it off.
+**What a numeric loop goes through.** Hover the `for` of a loop with numbers to see the values: `for i = 1, 10, 2` shows `i` takes the values 1, 3, 5, 7, 9 (5 times, step 2). It says when the loop does not run (`for i = 5, 1`), when the step is 0, and for `for i = 1, 3, 5` that the step is larger than the distance, so the loop runs once. `plua.hover.forPreview` switches it off.
 
-**Types of parameters and of return values.** A parameter written without a type (`value2`) gets a yellow line under its name while the cursor is on it, and after a pause (`pluto.format.suggestParamTypeDelayMs`, 600 ms) a grey `:` next to it. `Tab` inserts `: ` and opens the list of types; then, once the type is complete, the suggestions of the default value take over (`= false`). The grey colon is not shown while the list of completions is open: it comes when you have closed that list (`Esc`, or a choice), however long that takes. `Esc` on the grey text hides it until you type or move the cursor. The same grey `: ` appears after the `)` of a function that has no return type. After `return ` in a function with a return type (`function f(): bool`), the values that fit it are suggested (`true`, `false`; `0`, `1`, `nil`, ... by the type). Class fields are not asked for a type: `public name` is fine in Pluto. `void`, `any` and nullable return types are not asked for a `return`.
+**Types of parameters and of return values.** A parameter written without a type (`value2`) gets a yellow line under its name while the cursor is on it, and after a pause (`plua.format.suggestParamTypeDelayMs`, 600 ms) a grey `:` next to it. `Tab` inserts `: ` and opens the list of types; then, once the type is complete, the suggestions of the default value take over (`= false`). The grey colon is not shown while the list of completions is open: it comes when you have closed that list (`Esc`, or a choice), however long that takes. `Esc` on the grey text hides it until you type or move the cursor. The same grey `: ` appears after the `)` of a function that has no return type. After `return ` in a function with a return type (`function f(): bool`), the values that fit it are suggested (`true`, `false`; `0`, `1`, `nil`, ... by the type). Class fields are not asked for a type: `public name` is fine in Pluto. `void`, `any` and nullable return types are not asked for a `return`.
 
 **switch and case.** Inside of a `switch`:
 
 | Where | Suggested | Setting |
 | --- | --- | --- |
-| after the values of a `case`: `case 1▮`, `case 2, 3▮` (after the pause) | `:` | `pluto.format.suggestCaseColon` |
-| an empty line in the body of a `case` that nothing ends (not `default`), before the next `case`, `default` or `end` | `break` | `pluto.format.suggestCaseBreak` |
-| an empty line at the level of the cases | `case ` and `default:` (`default` only once) | `pluto.format.suggestCaseWords` |
-| an empty line in the body of a class that has no `__construct`, or `function▮` there | `function __construct()` / ` __construct()`; with `extends` a second one (`Alt+]`) that also calls `parent:__construct()` | `pluto.format.suggestConstructor` |
+| after the values of a `case`: `case 1▮`, `case 2, 3▮` (after the pause) | `:` | `plua.format.suggestCaseColon` |
+| an empty line in the body of a `case` that nothing ends (not `default`), before the next `case`, `default` or `end` | `break` | `plua.format.suggestCaseBreak` |
+| an empty line at the level of the cases | `case ` and `default:` (`default` only once) | `plua.format.suggestCaseWords` |
+| an empty line in the body of a class that has no `__construct`, or `function▮` there | `function __construct()` / ` __construct()`; with `extends` a second one (`Alt+]`) that also calls `parent:__construct()` | `plua.format.suggestConstructor` |
 
-A `case` without a `:` gets a yellow line under the word `case` while the cursor is on its line (`pluto.highlight.caseNoColon`). `pluto.diagnostics.caseFallthrough` can mark, as a hint, a `case` that nothing ends (`break`, `return`, `goto`, `continue`, `error(...)`) and that runs into the next one; a case with an empty body, which gives two cases one body, is left alone. The Pluto compiler warns about the same thing.
+A `case` without a `:` gets a yellow line under the word `case` while the cursor is on its line (`plua.highlight.caseNoColon`). `plua.diagnostics.caseFallthrough` can mark, as a hint, a `case` that nothing ends (`break`, `return`, `goto`, `continue`, `error(...)`) and that runs into the next one; a case with an empty body, which gives two cases one body, is left alone. The Pluto compiler warns about the same thing.
 
-**A function that does not return what it says.** A function with a return type (`function f(): int`) that never uses `return` gets a warning on the type, and a function that says `void` and returns a value gets one on the `return` (`pluto.diagnostics.returnTypes`: `warning`, `error` or `off`). A function that raises an error, a nullable type, `any` and a function without a body are left alone.
+**A function that does not return what it says.** A function with a return type (`function f(): int`) that never uses `return` gets a warning on the type, and a function that says `void` and returns a value gets one on the `return` (`plua.diagnostics.returnTypes`: `warning`, `error` or `off`). A function that raises an error, a nullable type, `any` and a function without a body are left alone.
 
-**Names written twice.** A parameter that has the same name as an earlier parameter of the function or lambda (`function f(a, a)`, `|x, x| -> x`) and a key that is set twice in one table (`{ a = 1, a = 2 }`, also `a` and `["a"]`) get a warning on the second one. Set `pluto.diagnostics.duplicateParams` to `error` or `off` to change that.
+**Names written twice.** A parameter that has the same name as an earlier parameter of the function or lambda (`function f(a, a)`, `|x, x| -> x`) and a key that is set twice in one table (`{ a = 1, a = 2 }`, also `a` and `["a"]`) get a warning on the second one. Set `plua.diagnostics.duplicateParams` to `error` or `off` to change that.
 
-**A closer that does not fit.** If you type `]` where the last opened bracket is `{` and no other open bracket takes a `]`, it is underlined with `Expected '}' to close the bracket opened on line N`, and the quick fix (`Ctrl+.`) replaces it. `pluto.format.fixMismatchedBrackets` chooses what happens: `off` ignores it, `suggest` (default) underlines it and offers the fix, `auto` also replaces it by itself when you stop typing for `pluto.format.fixMismatchedBracketsDelayMs` (1200 ms). Typing or moving the cursor within that time cancels the replacement, and it is one step in the undo history. A forgotten closer (`{ a[1 }`), a stray one, and brackets in strings and comments are not touched.
+**A closer that does not fit.** If you type `]` where the last opened bracket is `{` and no other open bracket takes a `]`, it is underlined with `Expected '}' to close the bracket opened on line N`, and the quick fix (`Ctrl+.`) replaces it. `plua.format.fixMismatchedBrackets` chooses what happens: `off` ignores it, `suggest` (default) underlines it and offers the fix, `auto` also replaces it by itself when you stop typing for `plua.format.fixMismatchedBracketsDelayMs` (1200 ms). Typing or moving the cursor within that time cancels the replacement, and it is one step in the undo history. A forgotten closer (`{ a[1 }`), a stray one, and brackets in strings and comments are not touched.
+
+### Compilers
+
+The **Compilers** tab of the settings panel (and `plua.compilers.list`) holds a list of the programs that check your code without running it. An entry is a language (`pluto` or `lua`) and a path: a full path or a command name from the `PATH` (`${userHome}` and `${env:NAME}` work). **Add** puts a new row, **x** removes one. For each language the first entry that points to an executable file is used; if none does, `plua.diagnostics.compilerPath` / `plua.lua.compilerPath` and then the automatic search apply, as before. The list is a machine setting, so a workspace cannot decide which program is started, a path may not contain control characters, quotes or `< > | & ;`, and in untrusted workspaces nothing is started.
+
+### Keyboard layout fixer
+
+Typed `дщсфд ы = ЭПриветЭ` with the Russian layout on? It becomes `local s = "Привет"`: the Cyrillic keys are turned into the English keys of the same place, only in code (not in comments or strings), and the key `Э` (`э`) opens a string with `"` (`'`), so the text inside stays Russian. `Э` / `э` close the string again (not an empty one, so a text can begin with `Э`).
+
+- `plua.layoutFixer.mode`: `live` converts each key at once; `allCodeWords` converts a word when a space or a sign ends it; `keywordsOnly` only the words that give a keyword (`local`, `function`, `end`...); in all of them a quote key opens a string at once. `off` leaves only the command **Plua: Convert Keyboard Layout**, which converts the selection or the current line (and also the signs `.` `,` `;` `:` `?` `№` of the Russian layout next to Cyrillic letters).
+- `plua.layoutFixer.baseKeyboardProfile`: `physicalQwerty` converts letters, quotes, brackets, `;` `:` `,` `.` and the backtick (`х` -> `[`, `б` -> `,`, `ю` -> `.`); `hybridSmart` letters, quotes, brackets and `;` `:`; `keepLocalPunctuation` only letters and quotes.
+- `plua.layoutFixer.sourceLayouts`: `ru`, `uk` (`і ї є ґ`), `be` (`ў і`). `plua.layoutFixer.customMap` adds your own conversions.
+- A `.` or `,` typed on the Russian layout cannot be told from an English one, so these signs are never changed while typing.
+- Ctrl+Z takes back the typed key and its conversion together; undo and redo are never converted again.
+
+### Auto indent
+
+An empty line inside a block loses its indentation when you leave it (`editor.trimAutoWhitespace`), and the indent guide is cut. With `plua.autoIndent.preserveEmptyLines`, pressing Enter on an empty line inside a block gives both the line you leave and the new one the indentation of the block: that of the last line with code above, one level deeper after `do`, `then`, `else`, `repeat`, `function(...)`, `case ...:`, `default:`, `class`, `try` or an open `{`, `[`, `(`. The size of a level (a tab, or spaces) comes from the editor (`editor.insertSpaces`, `editor.tabSize`). `plua.autoIndent.indentAfterCase` chooses whether the line after `case ...:` and `default:` is indented; `plua.autoIndent.trimOnSave` removes the whitespace of empty lines when a file is saved. Ctrl+Z takes back the Enter together with the indentation.
 
 ### Settings panel
 
-Run **Plua: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Lua, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
+Run **Plua: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Compilers, Auto indent, Keyboard layout, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
 
 It reads and writes the same settings as the standard settings editor and `settings.json`: a change is saved at once in your user settings, a value that is the default is taken out of `settings.json` instead of being written there, and what you change in `settings.json` shows up in the panel. A value that is not allowed (a color that is not a color, a number out of range) is refused with the reason, and the control shows the value that is in force. Only the settings of this extension can be changed with it.
 
@@ -389,6 +434,7 @@ It reads and writes the same settings as the standard settings editor and `setti
 - **Plua: Lint Script** — checks the current file with `plutoc -p`.
 - **Plua: Rebuild Workspace Index**
 - **Plua: Settings** — opens the [settings panel](#settings-panel).
+- **Plua: Convert Keyboard Layout** — converts the selection (or the current line) typed on the wrong layout.
 
 ## Development
 
@@ -427,6 +473,8 @@ The extension is plain JavaScript and needs no build step.
 | `src/hints.js` | More typing hints: colons, return values, `switch` and `case`, return diagnostics |
 | `src/settingsModel.js`, `src/settingsPanel.js`, `src/settingsClient.js` | The settings panel: tabs and what may be saved, the window, the script of the page |
 | `src/autoFormat.js`, `src/autoFormatEditor.js` | Typing helpers: new line after a comma, grey suggestions, duplicate names, closers that do not fit |
+| `src/layoutFixer.js`, `src/layoutFixerEditor.js` | Keyboard layout fixer: the rules, and the typing listener and command |
+| `src/autoIndent.js`, `src/autoIndentEditor.js` | Indentation on Enter: the rules, and the editor part |
 
 - Get the sources: `git clone https://github.com/Lirniri/vscode-pluto-lua`.
 - Open this folder in VS Code and press `F5` to try the extension in a new window.
