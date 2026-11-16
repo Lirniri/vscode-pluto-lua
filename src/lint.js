@@ -9,7 +9,8 @@ const builtins = require("./builtins");
 const { normalizePath } = require("./workspaceIndex");
 const { t } = require("./i18n");
 const { findDuplicates, findBracketMismatches } = require("./autoFormat");
-const { findReturnProblems, findCaseFallthroughs } = require("./hints");
+const { findReturnProblems, findCaseFallthroughs, findUnknownTypes } = require("./hints");
+const { PRIMITIVE_TYPES } = require("./analysis");
 
 /**
  * @typedef {{ line: number, col: number, endLine: number, endCol: number, severity: "error"|"warning", message: string, code: string }} LintProblem
@@ -73,6 +74,15 @@ function lintSource(text, file, analyzer, options)
 				line: p.line, col: p.col, endLine: p.line, endCol: p.endCol, severity: options.returnTypes, code: p.kind == "missing" ? "return-missing" : "return-void-value",
 				message: t(p.kind == "missing" ? "ret.missing" : "ret.voidValue", p.type),
 			});
+		}
+	}
+	// A type that is neither built in nor a class or enum that is known: `function f(a: Foo): test`.
+	if (options.unknownTypes == "warning" || options.unknownTypes == "error")
+	{
+		const known = (name) => PRIMITIVE_TYPES.has(name) || analyzer.index.lookup(name).some(sym => sym.kind == "class" || sym.kind == "enum");
+		for (const u of findUnknownTypes(text, known))
+		{
+			out.push({ line: u.line, col: u.col, endLine: u.line, endCol: u.endCol, severity: options.unknownTypes, code: "unknown-type", message: t("type.unknown", u.name) });
 		}
 	}
 	if (options.caseFallthrough == "hint")

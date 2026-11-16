@@ -59,6 +59,7 @@ class DiagnosticsManager
 			duplicates: ["warning", "error", "off"].includes(config.get("diagnostics.duplicateParams", "warning")) ? config.get("diagnostics.duplicateParams", "warning") : "warning",
 			brackets: ["off", "suggest", "auto"].includes(config.get("format.fixMismatchedBrackets", "suggest")) ? config.get("format.fixMismatchedBrackets", "suggest") : "suggest",
 			returnTypes: ["warning", "error", "off"].includes(config.get("diagnostics.returnTypes", "warning")) ? config.get("diagnostics.returnTypes", "warning") : "warning",
+			unknownTypes: ["warning", "error", "off"].includes(config.get("diagnostics.unknownTypes", "warning")) ? config.get("diagnostics.unknownTypes", "warning") : "warning",
 			caseFallthrough: config.get("diagnostics.caseFallthrough", "off") == "hint" ? "hint" : "off",
 			jsonEnabled: config.get("json.enable", true) !== false,
 			jsonFiles: config.get("json.files", ["**/info.json"]),
@@ -317,6 +318,7 @@ class DiagnosticsManager
 			duplicates: config.duplicates,
 			brackets: config.brackets,
 			returnTypes: config.returnTypes,
+			unknownTypes: config.indexEnabled ? config.unknownTypes : "off", // without an index the classes of other files are unknown
 			caseFallthrough: config.caseFallthrough,
 		});
 		return problems.map(p => this._toDiagnostic(p, "pluto-lint"));

@@ -51,6 +51,7 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 - **Automatic `end`** when pressing Enter after `function`, `if ... then`, `for ... do`, `while ... do`, `class`, `switch ... do`, etc.
 - **Keyboard layout fixer**: text typed on a Cyrillic layout by mistake (`дщсфд`) turns into the English keys of the same place (`local`) while you type or at the end of a word; `Э` / `э` open a string at once and the Russian text inside stays. See [Keyboard layout fixer](#keyboard-layout-fixer).
 - **Smart indentation on Enter**: empty lines inside blocks keep their indentation (the indent guides are not cut), and the line after `case ...:` is indented. See [Auto indent](#auto-indent).
+- **`return` for a typed function**: Enter after the header of a function with a return type other than `void` (`function is_alive(entity: int): bool`) leaves an empty line for the cursor and puts a `return ` line under it, before the added `end` (`plua.format.autoReturn`). Delete the type again and a bare `return` goes with it (after a short pause, once the `:` is gone); a `return` that has a value stays, and a grey note at the end of the header says what the function returns, what it does and that the data type is not set, with the code on hover and a quick fix **Remove the return?** (`plua.diagnostics.returnHint`).
 - **Compilers**: a list of interpreters and compilers (`plua.compilers.list`) that check `.pluto` and `.lua` files, managed with the Add and Remove buttons. See [Compilers](#compilers).
 
 The smart delete keys (Backspace / Delete twice on `end`, Shift + Backspace and Shift + Delete by pieces) and the automatic `end` work in `.lua` files too, except for what only Pluto has (`class`, `switch`, `try`, `enum`, `->`).
@@ -153,6 +154,9 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `plua.diagnostics.returnTypes` | `warning` | A function that says it returns a type but never uses `return`, and a `void` function that returns a value: `warning`, `error` or `off`. |
 | `plua.diagnostics.caseFallthrough` | `off` | `hint` marks a `case` that nothing ends and that runs into the next one. |
 | `plua.autoCloseBlocks` | `true` | Insert `end` / `until` on Enter. |
+| `plua.format.autoReturn` | `true` | Enter after the header of a function with a return type other than `void` adds a `return ` line below the empty line of the cursor. |
+| `plua.diagnostics.returnHint` | `true` | After the return type of a function is deleted: a grey note about what it returns (with the code on hover) and a quick fix that removes the `return`. |
+| `plua.diagnostics.unknownTypes` | `warning` | A type that is not built in and is no known class or enum (`function f(a: Foo): test`): `warning`, `error` or `off`. |
 | `plua.quickDeleteEnd` | `true` | Backspace / Delete twice in a row on a line with only `end` removes the line and puts the cursor at the end of the line above. |
 | `plua.quickDeleteEndDoubleMs` | `1500` | How long after the first press the second one still counts, in milliseconds. |
 | `plua.shiftDeleteFromNextLine` | `true` | Shift + Delete on an empty line deletes pieces of the nearest line with text below it (an `end` is one piece). |

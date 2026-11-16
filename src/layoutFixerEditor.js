@@ -35,7 +35,7 @@ function readOptions(document)
 function planChange(text, change, offset, reason, options)
 {
 	const reasons = vscode.TextDocumentChangeReason;
-	if (!options.enabled || options.mode == "off" || change.rangeLength != 0 || change.text.length == 0)
+	if (!options.enabled || options.mode == "off" || change.text.length == 0)
 	{
 		return null;
 	}
@@ -64,10 +64,53 @@ function registerLayoutFixer(context, service)
 	const applies = (document) => document.languageId == "pluto" || (document.languageId == "lua" && service.luaEnabled());
 	let busy = false;
 
+	/**
+	 * Puts the conversion in. It is not held back by other typing: keys that come while it is on its way are converted on
+	 * their own. When the editor turns the edit down because the text changed in the meantime, the plan is made again.
+	 */
+	const apply = function (editor, document, change, offset, attempt)
+	{
+		const text = document.getText();
+		// The typed text is still where it was typed (what comes after it does not matter).
+		if (text.slice(offset, offset + change.text.length) != change.text)
+		{
+			return;
+		}
+		const edit = planChange(text, change, offset, undefined, readOptions(document));
+		if (!edit)
+		{
+			return;
+		}
+		const delta = edit.text.length - (edit.end - edit.start);
+		// The cursor, as it is when the edit comes: a replacement of the same length leaves it where it is.
+		const caretBefore = editor.selections.length == 1 && editor.selection.isEmpty ? document.offsetAt(editor.selection.active) : -1;
+		// No undo stop on either side: one Ctrl+Z takes back both the typed key and its conversion.
+		editor.edit(function (builder)
+		{
+			builder.replace(new vscode.Range(document.positionAt(edit.start), document.positionAt(edit.end)), edit.text);
+		}, { undoStopBefore: false, undoStopAfter: false }).then(function (applied)
+		{
+			if (!applied)
+			{
+				if (attempt < 4)
+				{
+					setTimeout(() => apply(editor, document, change, offset, attempt + 1), 15);
+				}
+				return;
+			}
+			if (delta != 0 && caretBefore >= edit.end && editor.selections.length == 1 && editor.selection.isEmpty
+				&& document.offsetAt(editor.selection.active) == caretBefore)
+			{
+				const pos = document.positionAt(caretBefore + delta);
+				editor.selection = new vscode.Selection(pos, pos);
+			}
+		}, function () { });
+	};
+
 	context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(function (event)
 	{
 		const document = event.document;
-		if (busy || !applies(document) || event.contentChanges.length != 1)
+		if (!applies(document) || event.contentChanges.length != 1)
 		{
 			return;
 		}
@@ -79,29 +122,12 @@ function registerLayoutFixer(context, service)
 		const change = event.contentChanges[0];
 		const options = readOptions(document);
 		const offset = document.offsetAt(change.range.start);
-		const edit = planChange(document.getText(), change, offset, event.reason, options);
-		if (!edit)
+		// Is there anything to do? (The plan is made again when it is carried out.)
+		if (!planChange(document.getText(), change, offset, event.reason, options))
 		{
 			return;
 		}
-		const at = document.positionAt(edit.start);
-		const to = document.positionAt(edit.end);
-		const caretOffset = offset + change.text.length; // where the cursor is after typing
-		const delta = edit.text.length - (edit.end - edit.start);
-		busy = true;
-		// No undo stop on either side: one Ctrl+Z takes back both the typed key and its conversion.
-		editor.edit(function (builder)
-		{
-			builder.replace(new vscode.Range(at, to), edit.text);
-		}, { undoStopBefore: false, undoStopAfter: false }).then(function ()
-		{
-			busy = false;
-			const pos = document.positionAt(caretOffset + delta);
-			editor.selection = new vscode.Selection(pos, pos);
-		}, function ()
-		{
-			busy = false;
-		});
+		apply(editor, document, change, offset, 0);
 	}));
 
 	// The manual conversion: the selections, or the line of the cursor when nothing is selected.

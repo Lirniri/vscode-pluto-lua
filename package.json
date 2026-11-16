@@ -745,6 +745,11 @@
 					"default": true,
 					"markdownDescription": "%plua.format.suggestCaseColon.markdownDescription%"
 				},
+				"plua.format.autoReturn": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.format.autoReturn.markdownDescription%"
+				},
 				"plua.format.suggestCaseBreak": {
 					"type": "boolean",
 					"default": true,
@@ -881,6 +886,17 @@
 					"type": "boolean",
 					"default": true,
 					"markdownDescription": "%plua.diagnostics.enable.markdownDescription%"
+				},
+				"plua.diagnostics.unknownTypes": {
+					"type": "string",
+					"enum": ["warning", "error", "off"],
+					"default": "warning",
+					"markdownDescription": "%plua.diagnostics.unknownTypes.markdownDescription%"
+				},
+				"plua.diagnostics.returnHint": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.diagnostics.returnHint.markdownDescription%"
 				},
 				"plua.diagnostics.compilerPath": {
 					"type": "string",

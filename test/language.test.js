@@ -4168,7 +4168,7 @@ test("layoutFixer: the manual command skips comments and strings, and the editor
 	assert.strictEqual(planChange("ф", typed, 0, undefined, Object.assign({}, options, { enabled: false })), null);
 	assert.strictEqual(planChange("ф", typed, 0, undefined, Object.assign({}, options, { mode: "off" })), null);
 	assert.strictEqual(planChange("фы", { rangeLength: 0, text: "фы" }, 0, undefined, options), null, "a paste is left alone");
-	assert.strictEqual(planChange("ф", { rangeLength: 1, text: "ф" }, 0, undefined, options), null, "a replaced selection");
+	assert.deepStrictEqual(planChange("ф", { rangeLength: 5, text: "ф" }, 0, undefined, options), { start: 0, end: 1, text: "a" }, "a key typed over a selected text is converted too");
 	assert.deepStrictEqual(planChange("дщсфд ", { rangeLength: 0, text: " " }, 5, undefined, Object.assign({}, options, { mode: "keywordsOnly" })), { start: 0, end: 5, text: "local" });
 });
 
@@ -4294,4 +4294,159 @@ test("autoIndent: a variable called case, a field called do and the Russian sign
 	const layout = fx.buildLayout({});
 	const text = "ф\"ф";
 	assert.strictEqual(fx.applyEdits(text, fx.convertRange(text, 0, text.length, layout, {})), "a\"ф", "a quote in code opens a string, it is never turned into @");
+});
+
+test("hints: the grey return-type colon stays at the `)` and does not follow the cursor to empty lines below", function ()
+{
+	const { returnColonAt } = require("../src/hints");
+	const header = "function f(test: bool = true)";
+	assert.ok(returnColonAt(header, header.length), "right after the bracket");
+	assert.ok(returnColonAt(header + " ", header.length + 1), "after a space");
+	assert.strictEqual(returnColonAt(header + "\n", header.length + 1), null, "Enter once");
+	assert.strictEqual(returnColonAt(header + "\n\n", header.length + 2), null, "Enter twice");
+	assert.strictEqual(returnColonAt(header + "\n\t\nend", header.length + 2), null, "an indented empty line");
+});
+
+test("autoReturn: which headers get a `return ` line below the empty line", function ()
+{
+	const { returnTypeOf } = require("../src/extension");
+	for (const [line, type] of [["function is_alive(entity: int): bool", "bool"], ["local function f(a): string", "string"], ["function Car:get(): Car?", "Car?"],
+		["function f(a: int = g()): int|string", "int|string"], ["local f = function(x): any", "any"], ["\tpublic function make(id: int): Entity", "Entity"],
+		["function f(): bool -- comment", "bool"]])
+	{
+		assert.strictEqual(returnTypeOf(line), type, line);
+	}
+	for (const line of ["function log(msg: string): void", "function f()", "function f(a, b)", "if x then", "local t: function", "class Foo", "function f(a) return 1 end"])
+	{
+		assert.strictEqual(returnTypeOf(line), null, line);
+	}
+});
+
+test("returnHint: the functions of a text, what their returns hold", function ()
+{
+	const { findFunctionShapes } = require("../src/hints");
+	const shapes = findFunctionShapes("function a(x)\n\treturn x > 1\nend\nfunction b(): int\n\t\n\treturn \nend\nfunction c()\n\treturn {\n\t\ta = 1\n\t}\nend\nfunction d()\n\tlocal f = function() return 1 end\nend\n");
+	const by = (key) => shapes.find(s => s.key == key);
+	assert.deepStrictEqual([by("a#1").hasColon, by("a#1").retType, by("a#1").returns.length, by("a#1").returns[0].bare], [false, null, 1, false]);
+	assert.deepStrictEqual([by("b#1").hasColon, by("b#1").retType, by("b#1").onlyBareReturn], [true, "int", true]);
+	assert.strictEqual(by("c#1").returns[0].end > by("c#1").returns[0].valueStart, true);
+	assert.ok(by("c#1").returns[0].end > shapes.length, "a table over lines is one statement");
+	assert.strictEqual(by("d#1").returns.length, 0, "the return of an inner function is not the outer one's");
+	assert.strictEqual(by("#1").returns.length, 1);
+	assert.strictEqual(by("d#1").onlyBareReturn, false);
+	assert.strictEqual(findFunctionShapes("function a(): bool\n\treturn\nend").find(s => s.key == "a#1").onlyBareReturn, true);
+	assert.strictEqual(findFunctionShapes("function a(): bool\n\tprint(1)\n\treturn\nend").find(s => s.key == "a#1").onlyBareReturn, false);
+});
+
+test("returnHint: the type a value tells and what the note says", function ()
+{
+	const rh = require("../src/returnHint");
+	const { findFunctionShapes } = require("../src/hints");
+	const type = (v) => rh.inferType(v);
+	assert.deepStrictEqual(["true", "not x", "self.hp > 0", "a == b", "1", "-5", "0xFF", "3.14", "\"a\"", "'b'", "\"a\" .. x", "new Car(1)", "{ a = 1 }", "nil", "function() end"].map(type),
+		["bool", "bool", "bool", "bool", "int", "int", "int", "float", "string", "string", "string", "Car", "table", "nil", "function"]);
+	assert.deepStrictEqual(["self.hp", "f(x)", "a and b", "a > 1 or b", ""].map(type), [null, null, null, null, null]);
+	const note = (text, name) => { const shape = findFunctionShapes(text).find(s => s.name == name); return rh.describe(shape, text); };
+	const { t } = require("../src/i18n");
+	assert.strictEqual(note("function f()\n\treturn self.hp > 0\nend", "f").message, t("returnHint.message", "bool", "self.hp > 0"));
+	assert.strictEqual(note("function f()\n\treturn self.hp\nend", "f").message, t("returnHint.message", t("returnHint.value"), "self.hp"));
+	assert.strictEqual(note("function f()\n\treturn json.decode(io.contents(path), { strict = true })\nend", "f").action, t("returnHint.click"), "long code: the click text");
+	assert.strictEqual(note("function f(a)\n\tif a then\n\t\treturn true\n\tend\n\treturn \"no\"\nend", "f").type, "bool" + t("returnHint.or") + "string");
+	// What goes when a return is removed: its line, with the break, or only the statement.
+	const text = "function f()\n\tlocal x = 1\n\treturn x\nend\n";
+	const ret = findFunctionShapes(text)[0].returns[0];
+	const range = rh.removalRange(text, ret);
+	assert.strictEqual(text.slice(0, range.start) + text.slice(range.end), "function f()\n\tlocal x = 1\nend\n");
+	const inline = "function f() return 1 end";
+	const r2 = findFunctionShapes(inline)[0].returns[0];
+	const g = rh.removalRange(inline, r2);
+	assert.strictEqual(inline.slice(0, g.start) + inline.slice(g.end), "function f()  end");
+});
+
+test("returnHint: removing the type takes a bare return away, or puts the note on a return with a value", function ()
+{
+	const rh = require("../src/returnHint");
+	const { findFunctionShapes } = require("../src/hints");
+	const shapes = (text) => findFunctionShapes(text);
+	const flagged = new Set();
+	const memory = new Set();
+	// The function has its type and the `return ` that was added.
+	let r = rh.track(shapes("function f(): int\n\t\n\treturn \nend"), flagged, memory);
+	assert.deepStrictEqual([r.removeBare, [...r.flagged]], [[], []]);
+	// The type is deleted a letter at a time: nothing happens while a colon stands there.
+	r = rh.track(shapes("function f(): in\n\t\n\treturn \nend"), r.flagged, memory);
+	r = rh.track(shapes("function f():\n\t\n\treturn \nend"), r.flagged, memory);
+	assert.deepStrictEqual([r.removeBare, [...r.flagged]], [[], []]);
+	// The colon is gone: the bare return goes.
+	r = rh.track(shapes("function f()\n\t\n\treturn \nend"), r.flagged, memory);
+	assert.deepStrictEqual(r.removeBare, ["f#1"]);
+	// With a value in it, the function gets the note, and keeps it while it stays without a type.
+	const memory2 = new Set();
+	rh.track(shapes("function g(): bool\n\treturn x > 1\nend"), new Set(), memory2);
+	r = rh.track(shapes("function g()\n\treturn x > 1\nend"), new Set(), memory2);
+	assert.deepStrictEqual([r.removeBare, [...r.flagged]], [[], ["g#1"]]);
+	r = rh.track(shapes("function g()\n\treturn x > 1\n\nend"), r.flagged, memory2);
+	assert.deepStrictEqual([...r.flagged], ["g#1"]);
+	r = rh.track(shapes("function g(): bool\n\treturn x > 1\nend"), r.flagged, memory2);
+	assert.deepStrictEqual([...r.flagged], [], "the type is back");
+	// A function that never had a type is left alone, however it looks.
+	r = rh.track(shapes("function h()\n\treturn 1\nend\nfunction k()\n\treturn\nend"), new Set(), new Set());
+	assert.deepStrictEqual([r.removeBare, [...r.flagged]], [[], []]);
+	// `void` in place of the type: a bare return goes too.
+	const memory3 = new Set();
+	rh.track(shapes("function v(): bool\n\treturn\nend"), new Set(), memory3);
+	assert.deepStrictEqual(rh.track(shapes("function v(): void\n\treturn\nend"), new Set(), memory3).removeBare, ["v#1"]);
+});
+
+test("returnHint: settings and texts", function ()
+{
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	for (const key of ["plua.format.autoReturn", "plua.diagnostics.returnHint"])
+	{
+		const prop = pkg.contributes.configuration.properties[key];
+		assert.ok(prop && prop.type == "boolean" && prop.default === true, key);
+		const text = prop.markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], key);
+	}
+	const i18n = require("../src/i18n");
+	for (const key of ["message", "value", "click", "or", "code", "goto", "remove"])
+	{
+		assert.notStrictEqual(i18n.t("returnHint." + key), "returnHint." + key, key);
+	}
+});
+
+test("hints: an empty body, a body with code and a body with a return are told apart", function ()
+{
+	const { findFunctionShapes } = require("../src/hints");
+	const one = (text) => findFunctionShapes(text)[0];
+	assert.strictEqual(one("function f(): bool\n\t\nend").bodyEmpty, true);
+	assert.strictEqual(one("function f(): bool\n\n\nend").bodyEmpty, true);
+	assert.strictEqual(one("function f(): bool\n\treturn\nend").bodyEmpty, false);
+	const code = one("function g(a): int\n\t\n\tprint(a)\nend");
+	assert.deepStrictEqual([code.bodyEmpty, code.returns.length, code.endLine], [false, 0, 3], "code, no return: one goes before the end");
+	assert.strictEqual(one("function h(a): int\n\t\n\treturn a\nend").returns.length, 1, "a return already: nothing is added");
+});
+
+test("unknownTypes: a type that is neither built in nor a known class or enum is marked, in parameters, return types and locals", function ()
+{
+	const known = new Set(["Car"]);
+	const index = { files: new Map(), resolveModule: () => null, lookup: (name) => (known.has(name) ? [{ kind: "class" }] : name == "Color" ? [{ kind: "enum" }] : []) };
+	const run = (text, mode) => lintSource(text, { path: "/ws/a.pluto", requires: [] }, { index }, { requires: false, calls: false, unknownTypes: mode });
+	const names = (text) => run(text, "warning").map(p => [p.line, p.col, p.endCol, p.code, p.severity]);
+	// The line of the screenshot: the return type `test` is no type.
+	assert.deepStrictEqual(names("public function main(test: bool = true): test\nend"), [[0, 41, 45, "unknown-type", "warning"]]);
+	assert.deepStrictEqual(names("function f(a: Foo, b: int|Bar?, c: ?Car, d: Color = nil, e: json.Value): Car\nend").map(x => x[1]), [14, 26]);
+	assert.deepStrictEqual(names("local x: Qux = 1\nlocal y: int = 2\nlocal z = c ? a : b").map(x => x[0]), [0]);
+	assert.deepStrictEqual(names("function f(e: int = obj:m(), g: string = c ? 1 : 2): void\nend"), [], "a default value is no type");
+	assert.deepStrictEqual(names("function f(a: any, b: mixed, c: table, d: nil): thread\nend"), []);
+	assert.strictEqual(run("function f(): test\nend", "error")[0].severity, "error");
+	assert.deepStrictEqual(run("function f(): test\nend", "off"), []);
+	assert.deepStrictEqual(run("function f(): test\nend", undefined), []);
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const prop = pkg.contributes.configuration.properties["plua.diagnostics.unknownTypes"];
+	assert.deepStrictEqual([prop.enum, prop.default], [["warning", "error", "off"], "warning"]);
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	assert.ok(nls[prop.markdownDescription.replace(/^%|%$/g, "")]);
 });

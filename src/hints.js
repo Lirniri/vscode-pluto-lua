@@ -167,7 +167,7 @@ function functionHeader(tokens, fi, text)
 	{
 		return null;
 	}
-	const out = { open, close, retType: null, typeStart: -1, typeEnd: -1, bodyStart: close + 1 };
+	const out = { open, close, retType: null, typeStart: -1, typeEnd: -1, bodyStart: close + 1, hasColon: isP(tokens[close + 1], ":") };
 	if (isP(tokens[close + 1], ":"))
 	{
 		// The type: names, `.`, `?`, `|` and groups of brackets.
@@ -213,6 +213,242 @@ function functionHeader(tokens, fi, text)
 }
 
 /**
+ * The functions of a text with what is in their bodies as far as `return` goes: the return type if there is one (and
+ * whether a `:` stands after the `)`), every `return` of the function itself (not of the functions inside of it), and
+ * whether the body holds nothing but one bare `return`.
+ * @param {string} text
+ * @returns {{ key: string, name: string, closeLine: number, hasColon: boolean, retType: string|null,
+ *   returns: { start: number, end: number, line: number, col: number, valueStart: number, valueEnd: number, bare: boolean }[],
+ *   onlyBareReturn: boolean }[]}
+ */
+function findFunctionShapes(text)
+{
+	const tokens = tokenize(text);
+	const out = [];
+	const stack = [];
+	const seen = new Map();
+	const closers = ["end", "else", "elseif", "until", "case", "default"];
+	for (let idx = 0; idx < tokens.length; ++idx)
+	{
+		const tok = tokens[idx];
+		const around = [...stack].reverse().find(e => e.name == "function");
+		if (around && around.header && idx >= around.header.bodyStart)
+		{
+			++around.bodyTokens;
+		}
+		if (tok.t != "id")
+		{
+			continue;
+		}
+		const v = tok.v;
+		if (v == "end" || v == "until")
+		{
+			for (let k = stack.length - 1; k >= 0; --k)
+			{
+				if (v == "until" ? stack[k].name == "repeat" : true)
+				{
+					const entry = stack[k];
+					stack.length = k;
+					if (entry.name == "function" && entry.header)
+					{
+						const r = entry.returns;
+						out.push({
+							key: entry.key, name: entry.fname, closeLine: tokens[entry.header.close].line, hasColon: entry.header.hasColon,
+							retType: entry.header.retType, returns: r, onlyBareReturn: r.length == 1 && r[0].bare && entry.bodyTokens == 2, bodyEmpty: r.length == 0 && entry.bodyTokens == 1, endLine: tok.line,
+						});
+					}
+					break;
+				}
+			}
+		}
+		else if (v == "do")
+		{
+			const top = stack[stack.length - 1];
+			if (top && top.needsDo)
+			{
+				top.needsDo = false;
+			}
+			else
+			{
+				stack.push({ name: "do" });
+			}
+		}
+		else if (BLOCK_OPENERS.has(v) && !isP(tokens[idx - 1], "."))
+		{
+			const afterEnum = (v == "class" || v == "pluto_class") && (isId(tokens[idx - 1], "enum") || isId(tokens[idx - 1], "pluto_enum"));
+			if (afterEnum || (v == "function" && isFunctionType(tokens, idx)))
+			{
+				continue;
+			}
+			const entry = { name: v, needsDo: NEEDS_DO.has(v), bodyTokens: 0, returns: [] };
+			if (v == "function")
+			{
+				entry.header = functionHeader(tokens, idx, text);
+				if (entry.header)
+				{
+					entry.fname = text.slice(tokens[idx].end, tokens[entry.header.open].off).trim();
+					const n = (seen.get(entry.fname) || 0) + 1;
+					seen.set(entry.fname, n);
+					entry.key = entry.fname + "#" + n;
+				}
+			}
+			stack.push(entry);
+		}
+		else if (v == "return")
+		{
+			const owner = [...stack].reverse().find(e => e.name == "function");
+			if (!owner || !owner.header)
+			{
+				continue;
+			}
+			// The statement: what follows on the line, and further as long as a bracket is open.
+			let depth = 0;
+			let last = null;
+			for (let k = idx + 1; k < tokens.length; ++k)
+			{
+				const t = tokens[k];
+				if (depth == 0 && (t.line != tok.line || isP(t, ";") || (isId(t) && closers.includes(t.v))))
+				{
+					break;
+				}
+				if (isP(t, "(") || isP(t, "{") || isP(t, "["))
+				{
+					++depth;
+				}
+				else if (isP(t, ")") || isP(t, "}") || isP(t, "]"))
+				{
+					--depth;
+				}
+				last = t;
+			}
+			owner.returns.push({
+				start: tok.off, end: last ? last.end : tok.end, line: tok.line, col: tok.col,
+				valueStart: last ? tokens[idx + 1].off : -1, valueEnd: last ? last.end : -1, bare: !last,
+			});
+		}
+	}
+	return out.sort((a, b) => a.key < b.key ? -1 : 1);
+}
+
+/**
+ * The names of types that are written as types (parameter types, return types, `local x: Type`) and that `isKnown` does not
+ * accept. Only plain names are looked at (`Car`, `?Car`, `int|Car`); a name after a dot, or inside of brackets, is left alone.
+ * @param {string} text
+ * @param {(name: string) => boolean} isKnown
+ * @returns {{ name: string, line: number, col: number, endCol: number }[]}
+ */
+function findUnknownTypes(text, isKnown)
+{
+	const tokens = tokenize(text);
+	const out = [];
+	const seen = new Set();
+	const check = function (from, to)
+	{
+		// Tokens [from, to) are a type: names at the top level that are no part of a dotted name.
+		let depth = 0;
+		for (let k = from; k < to; ++k)
+		{
+			const tok = tokens[k];
+			if (isP(tok, "(") || isP(tok, "{") || isP(tok, "["))
+			{
+				++depth;
+			}
+			else if (isP(tok, ")") || isP(tok, "}") || isP(tok, "]"))
+			{
+				--depth;
+			}
+			else if (depth == 0 && tok.t == "id" && !RESERVED.has(tok.v) && !isP(tokens[k - 1], ".") && !isP(tokens[k + 1], ".") && !seen.has(tok.off) && !isKnown(tok.v))
+			{
+				seen.add(tok.off);
+				out.push({ name: tok.v, line: tok.line, col: tok.col, endCol: tok.col + tok.v.length });
+			}
+		}
+	};
+	// The end of a type that starts at token `k`: names, `?`, `|`, `.` and groups of brackets.
+	const typeEnd = function (k)
+	{
+		let depth = 0;
+		let last = null;
+		for (; k < tokens.length; ++k)
+		{
+			const tok = tokens[k];
+			if (depth == 0)
+			{
+				const nameFits = !last || isP(last, "|") || isP(last, ".") || isP(last, "?");
+				if (!(isP(tok, "?") || isP(tok, "|") || isP(tok, ".") || isP(tok, "{") || isP(tok, "(") || isP(tok, "[") || (isId(tok) && nameFits)))
+				{
+					break;
+				}
+			}
+			if (isP(tok, "{") || isP(tok, "(") || isP(tok, "["))
+			{
+				++depth;
+			}
+			else if (isP(tok, "}") || isP(tok, ")") || isP(tok, "]"))
+			{
+				--depth;
+			}
+			last = tok;
+		}
+		return k;
+	};
+	for (let idx = 0; idx < tokens.length; ++idx)
+	{
+		const tok = tokens[idx];
+		if (tok.t != "id")
+		{
+			continue;
+		}
+		if (tok.v == "function" && !isP(tokens[idx - 1], ".") && !isFunctionType(tokens, idx))
+		{
+			const header = functionHeader(tokens, idx, text);
+			if (!header)
+			{
+				continue;
+			}
+			// Parameters: after a `:` at the top level of the list, up to the `=` of a default or the `,`.
+			let depth = 0;
+			let inDefault = false;
+			for (let k = header.open + 1; k < header.close; ++k)
+			{
+				const t = tokens[k];
+				if (depth == 0 && isP(t, ","))
+				{
+					inDefault = false;
+				}
+				else if (depth == 0 && isP(t, "="))
+				{
+					inDefault = true; // `a: int = obj:method()`: the `:` there is a call
+				}
+				if (isP(t, "(") || isP(t, "{") || isP(t, "["))
+				{
+					++depth;
+				}
+				else if (isP(t, ")") || isP(t, "}") || isP(t, "]"))
+				{
+					--depth;
+				}
+				else if (depth == 0 && !inDefault && isP(t, ":"))
+				{
+					const end = Math.min(typeEnd(k + 1), header.close);
+					check(k + 1, end);
+					k = end - 1;
+				}
+			}
+			if (header.retType)
+			{
+				check(header.close + 2, typeEnd(header.close + 2));
+			}
+		}
+		else if (tok.v == "local" && isId(tokens[idx + 1]) && isP(tokens[idx + 2], ":") && tokens[idx + 2].line == tok.line)
+		{
+			check(idx + 3, typeEnd(idx + 3));
+		}
+	}
+	return out;
+}
+
+/**
  * The `)` that ends the parameter list of a function declaration, when the cursor is right behind it and no return
  * type follows: `function f(a)|`.
  * @returns {{ line: number, col: number }|null}
@@ -224,7 +460,7 @@ function returnColonAt(text, offset)
 	let closeIdx = -1;
 	for (let i = 0; i < tokens.length; ++i)
 	{
-		if (tokens[i].end <= offset && isP(tokens[i], ")") && text.slice(tokens[i].end, offset).trim() == "")
+		if (tokens[i].end <= offset && isP(tokens[i], ")") && text.slice(tokens[i].end, offset).trim() == "" && !text.slice(tokens[i].end, offset).includes(String.fromCharCode(10)))
 		{
 			closeIdx = i;
 		}
@@ -853,6 +1089,6 @@ function suggestionsAt(text, offset, options, extra)
 }
 
 module.exports = {
-	untypedParamAt, returnColonAt, returnValuesAt, enclosingReturnType, findReturnProblems, functionHeader,
+	untypedParamAt, findFunctionShapes, findUnknownTypes, returnColonAt, returnValuesAt, enclosingReturnType, findReturnProblems, functionHeader,
 	caseColonAt, caseNoColonAt, caseBreakAt, caseWordsAt, findCaseFallthroughs, suggestionsAt, classMembers, constructorSuggestionsAt,
 };

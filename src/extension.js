@@ -18,6 +18,8 @@ const { registerDefaultValueHint } = require("./defaultValuesEditor");
 const { registerAutoFormat } = require("./autoFormatEditor");
 const { registerLayoutFixer } = require("./layoutFixerEditor");
 const { registerAutoIndent } = require("./autoIndentEditor");
+const { registerReturnHint } = require("./returnHintEditor");
+const { findFunctionShapes } = require("./hints");
 const { registerHeirsPeek } = require("./heirsPeekEditor");
 const { registerRenameClass } = require("./renameClassEditor");
 const { registerSettingsPanel } = require("./settingsPanel");
@@ -336,6 +338,20 @@ function closerFor(line, lua)
 }
 
 /**
+ * The return type a function header promises, when it is something else than `void`: `function f(a: int): bool` gives
+ * `bool`. `null` for `void`, for a header without a return type, and for lines that are no function header.
+ * @param {string} line
+ * @returns {string|null}
+ */
+function returnTypeOf(line)
+{
+	const code = stripComment(line).replace(/\s+$/, "");
+	const m = /\bfunction\b.*\)\s*:\s*([^()=]+)$/.exec(code);
+	const type = m ? m[1].trim() : "";
+	return type && !/^void$/i.test(type) ? type : null;
+}
+
+/**
  * @param {vscode.ExtensionContext} context
  * @param {LanguageService} service
  */
@@ -389,6 +405,41 @@ function registerAutoClose(context, service)
 		const record = service.getRecord(document);
 		if (closer == "end" ? !needsEnd(record, openerLine, (n) => document.lineAt(n).text) : !hasUnclosedRepeat(record, openerLine))
 		{
+			// The function has its `end` already (the type was added later): an empty body gets its `return ` under the empty line
+			// of the cursor, a body with code but no `return` at all gets one at its end; with a `return` there nothing is done.
+			const shape = closer == "end" && document.languageId == "pluto" && returnTypeOf(openerText)
+				&& vscode.workspace.getConfiguration("plua", document.uri).get("format.autoReturn", true) !== false
+				? findFunctionShapes(document.getText()).find(s => s.closeLine == openerLine) : null;
+			if (shape && shape.returns.length == 0)
+			{
+				const eolText = document.eol == vscode.EndOfLine.CRLF ? String.fromCharCode(13, 10) : String.fromCharCode(10);
+				const bodyIndent = /^\s*/.exec(openerText)[0] + indentUnit(editor);
+				const below = openerLine + 2 < document.lineCount ? document.lineAt(openerLine + 2) : null;
+				const endLine = shape.endLine < document.lineCount ? document.lineAt(shape.endLine) : null;
+				if (shape.bodyEmpty || (endLine && shape.endLine > openerLine + 1 && endLine.text.trim() == "end"))
+				{
+					busy = true;
+					editor.edit(function (builder)
+					{
+						if (!shape.bodyEmpty)
+						{
+							builder.insert(new vscode.Position(shape.endLine, 0), bodyIndent + "return " + eolText);
+						}
+						else if (below && below.text.trim() == "")
+						{
+							builder.replace(below.range, bodyIndent + "return ");
+						}
+						else if (below)
+						{
+							builder.insert(new vscode.Position(openerLine + 2, 0), bodyIndent + "return " + eolText);
+						}
+						else
+						{
+							builder.insert(newLine.range.end, eolText + bodyIndent + "return ");
+						}
+					}, { undoStopBefore: false, undoStopAfter: false }).then(function () { busy = false; }, function () { busy = false; });
+				}
+			}
 			return;
 		}
 		const indent = /^\s*/.exec(openerText)[0];
@@ -400,6 +451,9 @@ function registerAutoClose(context, service)
 		const body = indent + indentUnit(editor);
 		const tooShallow = indentWidth(newLine.text, tab) <= indentWidth(indent, tab);
 		const hasNextLine = openerLine + 2 < document.lineCount;
+		// A function that promises a value gets its `return ` below the empty line of the cursor.
+		const middle = closer == "end" && document.languageId == "pluto" && vscode.workspace.getConfiguration("plua", document.uri).get("format.autoReturn", true) !== false
+			&& returnTypeOf(openerText) ? body + "return " + eol : "";
 		busy = true;
 		editor.edit(function (builder)
 		{
@@ -408,7 +462,7 @@ function registerAutoClose(context, service)
 				// The closer goes in front of the line below, not at the cursor: an edit at the cursor
 				// moves it off the new line, and VS Code then wipes the indentation it just put there
 				// (editor.trimAutoWhitespace).
-				builder.insert(new vscode.Position(openerLine + 2, 0), indent + closer + eol);
+				builder.insert(new vscode.Position(openerLine + 2, 0), middle + indent + closer + eol);
 				if (tooShallow)
 				{
 					builder.replace(newLine.range, body);
@@ -416,11 +470,11 @@ function registerAutoClose(context, service)
 			}
 			else if (tooShallow)
 			{
-				builder.replace(newLine.range, body + eol + indent + closer);
+				builder.replace(newLine.range, body + eol + middle + indent + closer);
 			}
 			else
 			{
-				builder.insert(insertAt, eol + indent + closer);
+				builder.insert(insertAt, eol + middle + indent + closer);
 			}
 		}, { undoStopBefore: false, undoStopAfter: false }).then(function ()
 		{
@@ -1007,6 +1061,7 @@ function activate(context)
 	registerAutoFormat(context, service);
 	registerLayoutFixer(context, service);
 	registerAutoIndent(context, service);
+	registerReturnHint(context);
 	registerHeirsPeek(context, service);
 	registerRenameClass(context, service);
 	registerSettingsPanel(context);
@@ -1147,4 +1202,4 @@ function activate(context)
 
 function deactivate() {}
 
-module.exports = { activate, deactivate, LanguageService, closerFor, needsEnd, quickDeleteDecision, pieceBelow, pieceRange, belowTokenRange, mergeLineRanges, registerLanguageProviders, selectorFor, applyLanguage };
+module.exports = { activate, deactivate, LanguageService, closerFor, returnTypeOf, needsEnd, quickDeleteDecision, pieceBelow, pieceRange, belowTokenRange, mergeLineRanges, registerLanguageProviders, selectorFor, applyLanguage };
