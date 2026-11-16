@@ -4450,3 +4450,737 @@ test("unknownTypes: a type that is neither built in nor a known class or enum is
 	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
 	assert.ok(nls[prop.markdownDescription.replace(/^%|%$/g, "")]);
 });
+
+test("returnHelper: a bare return goes when the type is missing or no type, never a return with a value", function ()
+{
+	const rh = require("../src/returnHint");
+	const { findFunctionShapes } = require("../src/hints");
+	const known = (name) => ["int", "bool", "string", "Car"].includes(name);
+	const keys = (text) => rh.emptyReturnsWithoutType(findFunctionShapes(text), known);
+	assert.strictEqual(rh.typeIsValid("bool", known), true);
+	assert.strictEqual(rh.typeIsValid("int|Car?", known), true);
+	assert.strictEqual(rh.typeIsValid("json.Value", known), true, "a dotted name comes from a module");
+	assert.strictEqual(rh.typeIsValid("boo", known), false);
+	assert.strictEqual(rh.typeIsValid("int|Foo", known), false);
+	assert.strictEqual(rh.typeIsValid(null, known), false);
+	assert.strictEqual(rh.typeIsValid("void", known), false);
+	assert.deepStrictEqual(keys("function a(): boo\n\t\n\treturn \nend"), ["a#1"], "not a type");
+	assert.deepStrictEqual(keys("function a()\n\treturn\nend"), ["a#1"], "no type");
+	assert.deepStrictEqual(keys("function a(): bool\n\treturn\nend"), [], "a usable type: the return stays");
+	assert.deepStrictEqual(keys("function a(): Car\n\treturn\nend"), []);
+	assert.deepStrictEqual(keys("function a()\n\treturn 123\nend"), [], "a return with a value is never touched");
+	assert.deepStrictEqual(keys("function a()\n\tprint(1)\n\treturn\nend"), [], "only a body that is nothing but the return");
+	assert.deepStrictEqual(keys("function a(): void\n\treturn\nend"), [], "void is left to the change of the type");
+});
+
+test("returnHelper: the directive #return = <expression>", function ()
+{
+	const rh = require("../src/returnHint");
+	const run = (text, line) => { const d = rh.findDirectives(text).find(x => x.line == line); return d ? rh.applyDirective(text, d, "    ", "\n") : undefined; };
+	assert.deepStrictEqual(rh.findDirectives("function f()\n    #return = self.hp > 0\n  #return=1 \n    #return =\n    x = 1\nend"), [{ line: 1, expr: "self.hp > 0" }, { line: 2, expr: "1" }]);
+	// No return yet: one is made before the `end`, one level in from the header.
+	assert.strictEqual(run("function f()\n    local a = 1\n    #return = self.hp > 0\nend\n", 2), "function f()\n    local a = 1\n    return self.hp > 0\nend\n");
+	assert.strictEqual(run("function f()\n    #return = x\n    local a = 1\nend\n", 1), "function f()\n    local a = 1\n    return x\nend\n", "the directive at the top: the return goes to the end");
+	// A return at the end takes the expression in, bare or with a value.
+	assert.strictEqual(run("function f()\n    return\n    #return = 7\nend\n", 2), "function f()\n    return 7\nend\n");
+	assert.strictEqual(run("function f()\n    return 1\n    #return = 2\nend\n", 2), "function f()\n    return 2\nend\n");
+	assert.strictEqual(run("function f()\n    #return = 2\n    return 1\nend\n", 1), "function f()\n    return 2\nend\n");
+	// A return in the middle is not the end of the function: a new one is added.
+	assert.strictEqual(run("function f(a)\n    if a then\n        return 1\n    end\n    #return = 2\nend\n", 4), "function f(a)\n    if a then\n        return 1\n    end\n    return 2\nend\n");
+	// The innermost function gets it.
+	assert.strictEqual(run("function f()\n    local g = function()\n        #return = 5\n    end\n    return g\nend\n", 2), "function f()\n    local g = function()\n        return 5\n    end\n    return g\nend\n");
+	assert.strictEqual(run("#return = 1\nfunction f()\nend\n", 0), null, "outside of a function");
+	// The edit is the smallest one.
+	assert.deepStrictEqual(rh.minimalEdit("abcdef", "abXef"), { start: 2, end: 4, text: "X" });
+	assert.deepStrictEqual(rh.minimalEdit("abc", "abc"), { start: 3, end: 3, text: "" });
+	const before = "function f()\n    #return = 2\n    return 1\nend\n";
+	const after = rh.applyDirective(before, { line: 1, expr: "2" }, "    ", "\n");
+	const e = rh.minimalEdit(before, after);
+	assert.strictEqual(before.slice(0, e.start) + e.text + before.slice(e.end), after);
+});
+
+test("returnHelper: the settings, the texts and the tab of the panel", function ()
+{
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	const expected = { removeReturnWhenTypeMissing: true, moveCursorToReturnOnIdle: true, idleDelayMs: 2000, enableReturnDirective: true };
+	for (const [k, def] of Object.entries(expected))
+	{
+		const key = "plua.returnHelper." + k;
+		assert.ok(props[key] && props[key].default === def, key);
+		assert.strictEqual(settingsModel.tabOf(key), "returnHelper", key);
+		const text = props[key].markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], "texts of " + key);
+	}
+	assert.strictEqual(settingsModel.tabOf("plua.format.autoReturn"), "returnHelper");
+	assert.strictEqual(settingsModel.tabOf("plua.diagnostics.returnHint"), "returnHelper");
+	assert.strictEqual(settingsModel.kindOf("plua.returnHelper.idleDelayMs", props["plua.returnHelper.idleDelayMs"]), "number");
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.returnHelper.idleDelayMs", 100).ok, false, "below the minimum");
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.returnHelper.idleDelayMs", "3000").value, 3000);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.returnHelper.idleDelayMs", 2000).isDefault, true);
+	const i18n = require("../src/i18n");
+	assert.notStrictEqual(i18n.t("settings.tab.returnHelper"), "settings.tab.returnHelper");
+	// The idle move and the directive are in the editor module; the undo steps are those of the editor's own edits.
+	const { readOptions } = require("../src/returnHintEditor");
+	assert.strictEqual(typeof readOptions, "function");
+});
+
+const LD_TEXT = [
+	"class Car",
+	"    function move(speed: float = 1.0, other)",
+	"        local acc = 2",
+	"        self.hp = 10",
+	"        local big = { a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9 }",
+	"        #speed >show_up",
+	"        acc = acc + speed",
+	"        self.hp -= 1",
+	"        return acc",
+	"    end",
+	"end",
+	"",
+].join("\n");
+const LD_LINE = 5;
+
+test("liveDirectives: the lines are told from comments and from code", function ()
+{
+	const ld = require("../src/liveDirectives");
+	assert.deepStrictEqual(ld.parseDirective("  -- #self.hp >show_down"), { indent: "  ", comment: true, target: "self.hp", op: "show_down", expr: "" });
+	assert.deepStrictEqual(ld.parseDirective("#return = x > 1"), { indent: "", comment: false, target: "return", op: "=", expr: "x > 1" });
+	assert.deepStrictEqual(ld.parseDirective("\t#speed=2.5"), { indent: "\t", comment: false, target: "speed", op: "=", expr: "2.5" });
+	assert.deepStrictEqual(ld.parseDirective("#self . hp = 1"), { indent: "", comment: false, target: "self.hp", op: "=", expr: "1" });
+	assert.strictEqual(ld.parseDirective("#x >").op, ">", "a command not finished");
+	assert.strictEqual(ld.parseDirective("#x").op, null, "a bare name");
+	assert.strictEqual(ld.parseDirective("#x =").expr, "");
+	for (const line of ["-- #TODO fix this", "x = #items", "-- #1 first", "#speed == 2", "local a = 1", "print(\"#a = 1\")", "-- comment"])
+	{
+		assert.strictEqual(ld.parseDirective(line), null, line);
+	}
+	assert.strictEqual(ld.isActive(ld.parseDirective("#x =")), false);
+	assert.strictEqual(ld.isActive(ld.parseDirective("#x = 1")), true);
+	assert.strictEqual(ld.isActive(ld.parseDirective("-- #x >show_up")), true);
+	assert.strictEqual(ld.isActive(ld.parseDirective("#x >")), false);
+});
+
+test("liveDirectives: show_up and show_down find the declaration, the assignment, the use and the return", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const up = (target) => ld.findAbove(LD_TEXT, LD_LINE, target);
+	const down = (target) => ld.findBelow(LD_TEXT, LD_LINE, target);
+	assert.deepStrictEqual([up("acc").line, up("acc").kind, up("acc").value, up("acc").type], [2, "declaration", "2", "int"]);
+	assert.deepStrictEqual([up("self.hp").line, up("self.hp").kind, up("self.hp").value], [3, "assignment", "10"]);
+	assert.deepStrictEqual([up("speed").line, up("speed").kind, up("speed").value, up("speed").type], [1, "parameter", "1.0", "float"]);
+	assert.deepStrictEqual([up("other").line, up("other").kind, up("other").value], [1, "parameter", ""]);
+	assert.strictEqual(up("big").type, "table");
+	assert.strictEqual(up("nothing"), null);
+	assert.strictEqual(up("return"), null, "no return above the line");
+	assert.deepStrictEqual([down("acc").line, down("acc").kind], [6, "assignment"]);
+	assert.deepStrictEqual([down("self.hp").line, down("self.hp").kind, down("self.hp").value], [7, "assignment", "1"]);
+	assert.deepStrictEqual([down("speed").line, down("speed").kind], [6, "use"]);
+	assert.deepStrictEqual([down("return").line, down("return").value], [8, "acc"]);
+	assert.deepStrictEqual([down("other").line, down("other").kind], [8, "return"], "nothing uses it: the final return");
+	// A directive line is not a place, a comment form is looked past too.
+	assert.strictEqual(ld.findAbove("local a = 1\n#a = 5\n#a >show_up", 2, "a").line, 0);
+	// The search is as far as the limit.
+	assert.strictEqual(ld.findAbove(LD_TEXT, LD_LINE, "acc", { maxSearchDistance: 2 }), null);
+	assert.strictEqual(ld.findAbove(LD_TEXT, LD_LINE, "acc", { maxSearchDistance: 3 }).line, 2);
+	// The return of an inner function is not the outer one's.
+	const inner = "function f()\n    local g = function()\n        return 1\n    end\n    #return >show_up\n    return 2\nend";
+	assert.strictEqual(ld.findAbove(inner, 4, "return"), null);
+	assert.strictEqual(ld.findBelow(inner, 4, "return").value, "2");
+});
+
+test("liveDirectives: #target = value changes the target, in a function, a field, a parameter and the return", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const at = (target, expr) => { const text = LD_TEXT.replace("#speed >show_up", "#" + target + " = " + expr); return ld.assign(text, LD_LINE, ld.parseDirective("#" + target + " = " + expr), "    ", "\n"); };
+	const lines = (text) => text.split("\n");
+	assert.strictEqual(lines(at("acc", "99"))[2], "        local acc = 99");
+	assert.strictEqual(lines(at("acc", "99")).length, lines(LD_TEXT).length - 1, "the directive line goes");
+	assert.strictEqual(lines(at("self.hp", "100"))[3], "        self.hp = 100");
+	assert.strictEqual(lines(at("speed", "2.5"))[1], "    function move(speed: float = 2.5, other)");
+	assert.strictEqual(lines(at("other", "7"))[1], "    function move(speed: float = 1.0, other = 7)", "a parameter without a default gets one");
+	assert.strictEqual(lines(at("big", "{}"))[4], "        local big = {}");
+	assert.strictEqual(at("nothing", "1"), null, "a target that is not there");
+	// return: the last return at the end takes it in, or a new one is made
+	assert.strictEqual(lines(at("return", "acc * 2"))[7], "        return acc * 2");
+	assert.strictEqual(ld.assign("function f()\n    local a = 1\n    #return = a\nend", 2, ld.parseDirective("    #return = a"), "    ", "\n"), "function f()\n    local a = 1\n    return a\nend");
+	assert.strictEqual(ld.assign("#return = 1", 0, ld.parseDirective("#return = 1"), "    ", "\n"), null, "no function around");
+	// The type annotation and the modifiers stay.
+	assert.strictEqual(ld.assign("local x: int = 1\n#x = 5", 1, ld.parseDirective("#x = 5"), "    ", "\n"), "local x: int = 5");
+	assert.strictEqual(ld.assign("x = 1\nx += 2\n#x = 5", 2, ld.parseDirective("#x = 5"), "    ", "\n"), "x = 1\nx += 5");
+	// The comment form is the same line.
+	assert.strictEqual(ld.assign("local x = 1\n-- #x = 5", 1, ld.parseDirective("-- #x = 5"), "    ", "\n"), "local x = 5");
+});
+
+test("liveDirectives: the grey note is cut, the hover has only the lines asked for", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const { t } = require("../src/i18n");
+	assert.strictEqual(ld.truncate("short", 60), "short");
+	assert.strictEqual(ld.truncate("a   b\tc", 60), "a b c", "white space is one space");
+	assert.strictEqual(ld.truncate("x".repeat(80), 10), "xxxxxxxxx…");
+	assert.strictEqual(ld.truncate("x".repeat(10), 10), "xxxxxxxxxx");
+	const dir = (s) => ld.parseDirective(s);
+	// The default limit of the note is 60 characters; the whole code is in the hover.
+	const long = ld.previewFor(LD_TEXT, LD_LINE, dir("#big >show_up"), {});
+	assert.strictEqual(long.preview, t("liveDir.above", ld.truncate("local big = { a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9 }", 60), 5, t("liveDir.typeSuffix", "table")));
+	assert.ok(long.preview.includes("…"));
+	assert.ok(ld.previewFor(LD_TEXT, LD_LINE, dir("#big >show_up"), { maxPreviewLength: 200 }).preview.includes("i = 9 }"), "the limit is a setting");
+	assert.strictEqual(long.context.lines.length, 3, "the default is 3 lines of context");
+	assert.deepStrictEqual([long.context.start, long.context.found], [3, 4], "one line before the found one, and one after it");
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#big >show_up"), { maxContextLines: 1 }).context.lines.length, 1);
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#big >show_up"), { maxContextLines: 5 }).context.lines.length, 5);
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#acc >show_down"), {}).preview, t("liveDir.below", "acc = acc + speed", 7, ""));
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#nothing >show_up"), { maxSearchDistance: 50 }).preview, t("liveDir.notFound", "nothing", 50));
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#acc = 5"), {}).preview, t("liveDir.replace", "local acc = 5", 3));
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#acc ="), {}).preview, t("liveDir.current", "local acc = 2", 3));
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#speed = 2.5"), {}).preview, t("liveDir.replace", "function move(speed: float = 2.5, other)", 2));
+	assert.strictEqual(ld.previewFor("function f()\n    #return = 1\nend", 1, dir("#return = 1"), {}).preview, t("liveDir.createReturn", "1"));
+	assert.strictEqual(ld.previewFor("function f()\n    return 0\n    #return = 1\nend", 2, dir("#return = 1"), {}).preview, t("liveDir.replaceReturn", "return 1", 2));
+	assert.strictEqual(ld.previewFor("#return = 1", 0, dir("#return = 1"), {}).preview, t("liveDir.noFunction"));
+	assert.strictEqual(ld.previewFor(LD_TEXT, LD_LINE, dir("#x >"), {}), null, "a command that is not finished shows nothing");
+	// Comments in the code or after it do not confuse the search.
+	assert.strictEqual(ld.findAbove("local a = 1 -- a = 5\n#a >show_up", 1, "a").value, "1");
+});
+
+test("liveDirectives: completion after # and after the target", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const labels = (text, line, col, o) => ld.completionsFor(text, line, col, o).map(i => i.label);
+	const kinds = (text, line, col) => Object.fromEntries(ld.completionsFor(text, line, col).map(i => [i.label, i.kind]));
+	const before = LD_TEXT.replace("        #speed >show_up", "        #");
+	const col = "        #".length;
+	assert.deepStrictEqual(labels(before, LD_LINE, col), ["return", "speed", "other", "big", "acc", "self.hp"]);
+	const all = kinds(before, LD_LINE, col);
+	assert.deepStrictEqual([all["return"], all["speed"], all["other"], all["acc"], all["self.hp"], all["big"]], ["keyword", "parameter", "parameter", "variable", "field", "variable"]);
+	assert.strictEqual(labels(before, LD_LINE, col)[0], "return", "return comes first");
+	// In a comment, with a word begun, and with spaces after the `#`.
+	assert.ok(labels("function f(a)\n    -- #\nend", 1, 8).includes("a"));
+	assert.ok(labels("function f(a)\n    # a\nend", 1, 7).includes("a"));
+	assert.ok(labels("function f(a)\n    #se\nend", 1, 7).includes("return"));
+	// After `>`: the commands, with their texts.
+	const cmd = ld.completionsFor("#acc >", 0, 6);
+	assert.deepStrictEqual(cmd.map(i => i.label), ld.COMMANDS);
+	assert.ok(cmd.every(i => i.detail && i.documentation));
+	assert.deepStrictEqual(labels("-- #return >sh", 0, 14), ld.COMMANDS);
+	assert.deepStrictEqual(labels("#self.hp > ", 0, 11), ld.COMMANDS);
+	// Not on other lines.
+	assert.deepStrictEqual(labels("local x = #items", 0, 16), []);
+	assert.deepStrictEqual(labels("print(1) -- #", 0, 13), []);
+	// Locals below the line or out of the search are not offered.
+	assert.ok(!labels("function f()\n    #\n    local later = 1\nend", 1, 5).includes("later"));
+	assert.ok(!labels("local far = 1\n\n\n\n#", 4, 1, { maxSearchDistance: 3 }).includes("far"));
+	assert.ok(labels("local far = 1\n\n\n\n#", 4, 1, { maxSearchDistance: 4 }).includes("far"));
+	assert.ok(labels("for i = 1, 3 do\n    #\nend", 1, 5).includes("i"), "loop variables");
+	assert.ok(labels("function f()\nend\nfunction g()\n    self.name = 1\n    #\nend", 4, 5).includes("self.name"));
+});
+
+test("liveDirectives: settings, texts, the Escape key and the old directive of the return helper", function ()
+{
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	const expected = { enabled: true, maxPreviewLength: 60, maxContextLines: 3, maxSearchDistance: 200, completion: true, inComments: true };
+	for (const [k, def] of Object.entries(expected))
+	{
+		const key = "plua.liveDirectives." + k;
+		assert.ok(props[key] && props[key].default === def, key);
+		assert.strictEqual(settingsModel.tabOf(key), "liveDirectives", key);
+		const text = props[key].markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], "texts of " + key);
+	}
+	assert.strictEqual(settingsModel.kindOf("plua.liveDirectives.maxPreviewLength", props["plua.liveDirectives.maxPreviewLength"]), "number");
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.liveDirectives.maxContextLines", 0).ok, false);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.liveDirectives.maxSearchDistance", 300).value, 300);
+	const i18n = require("../src/i18n");
+	for (const key of ["settings.tab.liveDirectives", "liveDir.above", "liveDir.below", "liveDir.notFound", "liveDir.replace", "liveDir.cmd.show_up", "liveDir.cmdDoc.show_down", "liveDir.item.field"])
+	{
+		assert.notStrictEqual(i18n.t(key), key, key);
+	}
+	const escape = pkg.contributes.keybindings.find(k => k.command == "plua.liveDirectives.dismiss");
+	assert.ok(escape && escape.key == "escape" && /plua\.onDirectiveLine/.test(escape.when) && /!suggestWidgetVisible/.test(escape.when));
+	// `#return = x` is no return statement of the function: the helpers of the return do not count it.
+	const { findFunctionShapes } = require("../src/hints");
+	const shape = findFunctionShapes("function f()\n    #return = 1\nend")[0];
+	assert.deepStrictEqual([shape.returns.length, shape.bodyEmpty], [0, false]);
+	assert.deepStrictEqual(shape.params, []);
+	assert.deepStrictEqual(findFunctionShapes("function f(a: int, b = g(1), c)\nend")[0].params.map(p => p.name), ["a", "b", "c"]);
+});
+
+test("idleController: the timer stands still while suggestions or parameter hints are open", function ()
+{
+	const { createIdleController } = require("../src/idleController");
+	let now = 0;
+	let nextId = 1;
+	const timers = new Map();
+	const fake = {
+		setTimeout: (fn, ms) => { const id = nextId++; timers.set(id, { at: now + ms, fn }); return id; },
+		clearTimeout: (id) => { timers.delete(id); },
+	};
+	const advance = (ms) =>
+	{
+		const end = now + ms;
+		for (;;)
+		{
+			const due = [...timers.entries()].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+			if (!due)
+			{
+				break;
+			}
+			now = due[1].at;
+			timers.delete(due[0]);
+			due[1].fn();
+		}
+		now = end;
+	};
+	const fired = [];
+	const contexts = [];
+	const ctl = createIdleController({ delay: () => 2000, onFire: (d) => fired.push(d), onContext: (a) => contexts.push(a), ...fake, holdFallbackMs: 20000 });
+	// Without suggestions it fires after the delay.
+	ctl.arm("line1");
+	advance(1999);
+	assert.deepStrictEqual(fired, []);
+	advance(2);
+	assert.deepStrictEqual(fired, ["line1"]);
+	assert.strictEqual(ctl.armed, false);
+	assert.deepStrictEqual(contexts, [true, false], "the context key follows the timer");
+	// Ctrl+Space: the timer is off and reset, however long the list stays open.
+	fired.length = 0;
+	ctl.arm("line2");
+	advance(1500);
+	ctl.hold();
+	assert.strictEqual(ctl.held, true);
+	advance(10000);
+	assert.deepStrictEqual(fired, [], "held");
+	// Moving in the list (Down, Up, PageDown, PageUp, the parameter hints) keeps it held and does not start it.
+	for (let i = 0; i < 4; ++i)
+	{
+		ctl.hold();
+		advance(1000);
+	}
+	ctl.touch();
+	advance(5000);
+	assert.deepStrictEqual(fired, [], "a sign of life does not start it while the list is open");
+	// The list is closed: it counts again from the start of the delay, not from where it was.
+	ctl.release();
+	assert.strictEqual(ctl.held, false);
+	advance(1999);
+	assert.deepStrictEqual(fired, []);
+	advance(2);
+	assert.deepStrictEqual(fired, ["line2"]);
+	// Release without a hold, or after the end, is nothing; cancel clears everything.
+	ctl.release();
+	ctl.hold();
+	assert.strictEqual(ctl.armed, false);
+	fired.length = 0;
+	ctl.arm("line3");
+	ctl.hold();
+	ctl.cancel();
+	advance(60000);
+	assert.deepStrictEqual(fired, []);
+	assert.strictEqual(timers.size, 0, "no timer is left");
+	// A safety net: a list closed in a way nobody saw (a click) does not hold the timer for ever.
+	ctl.arm("line4");
+	ctl.hold();
+	advance(19999);
+	assert.deepStrictEqual(fired, []);
+	advance(1);
+	advance(2000);
+	assert.deepStrictEqual(fired, ["line4"]);
+	// Arming again restarts everything, also out of a hold.
+	fired.length = 0;
+	ctl.arm("a");
+	ctl.hold();
+	ctl.arm("b");
+	assert.strictEqual(ctl.held, false);
+	advance(2000);
+	assert.deepStrictEqual(fired, ["b"]);
+	// The keys that hold and release the timer are bound, only while it is armed.
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const idleKeys = pkg.contributes.keybindings.filter(k => k.command == "plua.idle.key");
+	const byCommand = (c) => idleKeys.filter(k => k.args[0] == c);
+	for (const [command, mode] of [["editor.action.triggerSuggest", "hold"], ["editor.action.triggerParameterHints", "hold"], ["selectNextSuggestion", "hold"], ["selectPrevSuggestion", "hold"],
+		["selectNextPageSuggestion", "hold"], ["selectPrevPageSuggestion", "hold"], ["showNextParameterHint", "hold"], ["showPrevParameterHint", "hold"],
+		["hideSuggestWidget", "release"], ["acceptSelectedSuggestion", "release"], ["closeParameterHints", "release"]])
+	{
+		assert.ok(byCommand(command).length >= 1 && byCommand(command).every(k => k.args[1] == mode && /plua\.idleArmed/.test(k.when)), command);
+	}
+	assert.ok(byCommand("acceptSelectedSuggestion").length == 2, "Enter and Tab");
+	assert.ok(idleKeys.filter(k => /parameterHintsVisible/.test(k.when)).length == 3);
+});
+
+test("liveDirectives: the prefix, the separator and the aliases are settings that work at once", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const at = { prefix: "@", commandSeparator: "::", commandAliases: { up: "show_up", down: "show_down" } };
+	assert.deepStrictEqual(ld.parseDirective("  @speed::up", at), { indent: "  ", comment: false, target: "speed", op: "show_up", expr: "" });
+	assert.deepStrictEqual(ld.parseDirective("-- @self.hp :: down", at), { indent: "", comment: true, target: "self.hp", op: "show_down", expr: "" });
+	assert.strictEqual(ld.parseDirective("@speed::show_down", at).op, "show_down", "the first names still work");
+	assert.strictEqual(ld.parseDirective("@speed = 2", at).expr, "2");
+	assert.strictEqual(ld.parseDirective("#speed = 2", at), null, "the old prefix is code now");
+	assert.strictEqual(ld.parseDirective("@speed >show_up", at), null, "the old separator is not one");
+	assert.strictEqual(ld.parseDirective("@speed::sideways", at).op, ">", "an unknown command is not carried out");
+	assert.strictEqual(ld.parseDirective("#speed >up", { commandAliases: { up: "show_up" } }).op, "show_up");
+	assert.strictEqual(ld.parseDirective("#speed >up").op, ">", "no alias by default");
+	assert.strictEqual(ld.parseDirective("$$x->show_up", { prefix: "$$", commandSeparator: "->" }).op, "show_up");
+	assert.strictEqual(ld.parseDirective("#x > show_up", { prefix: "", commandSeparator: " " }).op, "show_up", "a prefix that cannot be used is the default");
+	assert.deepStrictEqual(ld.syntaxOf({ commandAliases: { up: "show_up", bad: "rm", "no good": "show_down" } }).aliases, { up: "show_up" }, "only names of letters, to a real command");
+	// Search, preview, assignment and completion follow the syntax.
+	const text = "function f(speed)\n    local acc = 2\n    @acc::up\n    return acc\nend";
+	assert.strictEqual(ld.previewFor(text, 2, ld.parseDirective("    @acc::up", at), at).found.line, 1);
+	assert.strictEqual(ld.findAbove("local a = 1\n@a = 5\n@a::up", 2, "a", at).line, 0, "a directive line in the new syntax is not a place");
+	assert.strictEqual(ld.assign("local a = 1\n@a = 5", 1, ld.parseDirective("@a = 5", at), "    ", "\n", at), "local a = 5");
+	const names = (line, col, o) => ld.completionsFor("function f(speed)\n" + line + "\nend", 1, col, o).map(i => i.label);
+	assert.ok(names("@", 1, at).includes("speed") && names("@", 1, at).includes("return"));
+	assert.deepStrictEqual(names("#", 1, at), [], "not after the old prefix");
+	assert.deepStrictEqual(names("@speed ::", 9, at), ld.COMMANDS.concat(["up", "down"]), "the aliases are offered too");
+	assert.deepStrictEqual(names("@speed >", 8, at), []);
+	assert.deepStrictEqual(names("-- @sp", 6, at).includes("speed"), true);
+	// A prefix with signs that mean something in a pattern.
+	assert.strictEqual(ld.parseDirective("$x.y = 1", { prefix: "$" }).target, "x.y");
+	assert.strictEqual(ld.parseDirective("*x = 1", { prefix: "*" }).expr, "1");
+	assert.strictEqual(ld.parseDirective("%x::show_up", { prefix: "%", commandSeparator: "::" }).op, "show_up");
+});
+
+test("liveDirectives: the limits of the directives (constants, read-only, ignored names)", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const { t } = require("../src/i18n");
+	const text = "function f(speed)\n    local acc = 2\n    local k <const> = 5\n    const c2 = 7\n    local m <close> = nil\n    self._cache = 1\n    #X\n    return acc\nend";
+	const line = 6;
+	const run = (target, expr, o) => ld.assignResult(text.replace("#X", "#" + target + " = " + expr), line, { target, op: "=", expr }, "    ", "\n", o);
+	// A constant is found (it used to be skipped, and an older assignment was changed instead) and left alone.
+	assert.strictEqual(ld.findAbove(text, line, "k").constant, true);
+	assert.strictEqual(ld.findAbove(text, line, "k").value, "5");
+	assert.strictEqual(ld.findAbove(text, line, "c2").constant, true);
+	assert.strictEqual(ld.findAbove(text, line, "acc").constant, false);
+	assert.deepStrictEqual([run("k", "9").reason, run("k", "9").text], ["const", null]);
+	assert.strictEqual(run("c2", "9").reason, "const");
+	assert.strictEqual(run("k", "9", { skipConst: false }).text.split("\n")[2], "    local k <const> = 9", "skipConst off: it is changed");
+	assert.strictEqual(run("m", "1").reason, "ok", "<close> is no constant");
+	assert.strictEqual(run("acc", "9").text.split("\n")[1], "    local acc = 9");
+	// Read-only: the changing goes, looking stays.
+	assert.deepStrictEqual([run("acc", "9", { allowModify: false }).reason, run("acc", "9", { allowModify: false }).text], ["readOnly", null]);
+	assert.strictEqual(ld.findAbove(text, line, "acc", { allowModify: false }).line, 1);
+	assert.strictEqual(ld.previewFor(text, line, { target: "acc", op: "=", expr: "5" }, { allowModify: false }).preview, t("liveDir.readOnly"));
+	assert.ok(ld.previewFor(text, line, { target: "acc", op: "show_up", expr: "" }, { allowModify: false }).preview.includes("local acc = 2"));
+	// The note of a constant.
+	assert.strictEqual(ld.previewFor(text, line, { target: "k", op: "=", expr: "9" }, {}).preview, t("liveDir.const", "k", 3));
+	assert.ok(ld.previewFor(text, line, { target: "k", op: "=", expr: "9" }, { skipConst: false }).preview.includes("<const> = 9"));
+	// Ignored names, with a pattern.
+	assert.strictEqual(ld.isIgnored("acc", ["acc"]), true);
+	assert.strictEqual(ld.isIgnored("self._cache", ["self._*"]), true);
+	assert.strictEqual(ld.isIgnored("self.cache", ["self._*"]), false);
+	assert.strictEqual(ld.isIgnored("acc2", ["acc"]), false);
+	assert.strictEqual(ld.isIgnored("x", ["", "  ", 5]), false);
+	assert.strictEqual(ld.isIgnored("x", undefined), false);
+	assert.strictEqual(run("acc", "9", { ignoredTargets: ["acc"] }).reason, "ignored");
+	assert.strictEqual(run("self._cache", "9", { ignoredTargets: ["self._*"] }).reason, "ignored");
+	assert.strictEqual(run("return", "1", { ignoredTargets: ["return"] }).reason, "ignored");
+	assert.strictEqual(ld.previewFor(text, line, { target: "acc", op: "show_up", expr: "" }, { ignoredTargets: ["acc"] }), null);
+	assert.ok(!ld.completionsFor(text.replace("#X", "#"), line, 5, { ignoredTargets: ["acc", "self._*", "return"] }).map(i => i.label).some(l => ["acc", "self._cache", "return"].includes(l)));
+	assert.ok(ld.completionsFor(text.replace("#X", "#"), line, 5, {}).map(i => i.label).includes("self._cache"));
+	assert.strictEqual(run("zzz", "1").reason, "notFound");
+	assert.strictEqual(ld.assign(text.replace("#X", "#acc = 9"), line, { target: "acc", op: "=", expr: "9" }, "    ", "\n", {}).split("\n")[1], "    local acc = 9");
+});
+
+test("liveDirectives: the new settings, their checks and their texts", function ()
+{
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	const nls = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+	const nlsRu = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.ru.json"), "utf8"));
+	const props = pkg.contributes.configuration.properties;
+	const expected = { allowModify: true, skipConst: true, prefix: "#", commandSeparator: ">" };
+	for (const [k, def] of Object.entries(expected))
+	{
+		assert.strictEqual(props["plua.liveDirectives." + k].default, def, k);
+	}
+	assert.deepStrictEqual([props["plua.liveDirectives.ignoredTargets"].default, props["plua.liveDirectives.commandAliases"].default], [[], {}]);
+	for (const k of ["allowModify", "skipConst", "ignoredTargets", "prefix", "commandSeparator", "commandAliases"])
+	{
+		const key = "plua.liveDirectives." + k;
+		assert.strictEqual(settingsModel.tabOf(key), "liveDirectives", key);
+		const text = props[key].markdownDescription.replace(/^%|%$/g, "");
+		assert.ok(nls[text] && nlsRu[text], "texts of " + key);
+	}
+	assert.strictEqual(settingsModel.kindOf("plua.liveDirectives.ignoredTargets", props["plua.liveDirectives.ignoredTargets"]), "list");
+	assert.strictEqual(settingsModel.kindOf("plua.liveDirectives.allowModify", props["plua.liveDirectives.allowModify"]), "boolean");
+	assert.strictEqual(settingsModel.kindOf("plua.liveDirectives.prefix", props["plua.liveDirectives.prefix"]), "text");
+	const ok = (key, value) => settingsModel.validateChange(pkg, key, value);
+	assert.strictEqual(ok("plua.liveDirectives.prefix", "@").value, "@");
+	assert.strictEqual(ok("plua.liveDirectives.prefix", "$$").ok, true);
+	assert.strictEqual(ok("plua.liveDirectives.prefix", "#").isDefault, true);
+	for (const bad of ["", "a b", "abcd", 5])
+	{
+		assert.strictEqual(ok("plua.liveDirectives.prefix", bad).ok, false, "prefix " + bad);
+	}
+	assert.strictEqual(ok("plua.liveDirectives.commandSeparator", "::").ok, true);
+	assert.strictEqual(ok("plua.liveDirectives.commandSeparator", "->").ok, true);
+	for (const bad of ["", "a", ">>>>>", " ", ": :", "x>"])
+	{
+		assert.strictEqual(ok("plua.liveDirectives.commandSeparator", bad).ok, false, "separator " + bad);
+	}
+	assert.strictEqual(ok("plua.liveDirectives.commandAliases", { up: "show_up", down: "show_down" }).ok, true);
+	assert.strictEqual(ok("plua.liveDirectives.commandAliases", {}).isDefault, true);
+	for (const bad of [{ up: "rm" }, { "u p": "show_up" }, [], "up", null, { up: 1 }])
+	{
+		assert.strictEqual(ok("plua.liveDirectives.commandAliases", bad).ok, false, JSON.stringify(bad));
+	}
+	assert.deepStrictEqual(ok("plua.liveDirectives.ignoredTargets", [" acc ", "", "self._*"]).value, ["acc", "self._*"]);
+	assert.strictEqual(ok("plua.liveDirectives.allowModify", "no").ok, false);
+	const i18n = require("../src/i18n");
+	for (const key of ["liveDir.const", "liveDir.readOnly", "settings.err.prefix", "settings.err.separator", "settings.err.aliases"])
+	{
+		assert.notStrictEqual(i18n.t(key), key, key);
+	}
+	// A `return` that follows the prefix is a directive, not a statement, whatever the prefix is.
+	const { findFunctionShapes, setDirectivePrefix } = require("../src/hints");
+	try
+	{
+		setDirectivePrefix("@");
+		assert.strictEqual(findFunctionShapes("function f()\n    @return = 1\nend")[0].returns.length, 0);
+		assert.strictEqual(findFunctionShapes("function f()\n    #return = 1\nend")[0].returns.length, 1, "# is a plain token now");
+		setDirectivePrefix("#");
+		assert.strictEqual(findFunctionShapes("function f()\n    #return = 1\nend")[0].returns.length, 0);
+		setDirectivePrefix("");
+		assert.strictEqual(findFunctionShapes("function f()\n    #return = 1\nend")[0].returns.length, 0, "an unusable prefix is the default");
+	}
+	finally
+	{
+		setDirectivePrefix("#");
+	}
+});
+
+test("returnHelper bugs: a mistyped type behind the ) and an erased value both leave a bare return that goes", function ()
+{
+	const rh = require("../src/returnHint");
+	const { findFunctionShapes } = require("../src/hints");
+	const known = (name) => ["int", "bool", "string", "Car"].includes(name);
+	const keys = (text) => rh.emptyReturnsWithoutType(findFunctionShapes(text), known);
+	// Bug 1: `function test() boo`, a name where the type should be (no colon): it used to count as code of the body.
+	const shape = findFunctionShapes("function test() boo\n\treturn\nend")[0];
+	assert.deepStrictEqual([shape.stray, shape.hasColon, shape.retType, shape.onlyBareReturn], ["boo", false, null, true]);
+	assert.deepStrictEqual(keys("function test() boo\n\treturn\nend"), ["test#1"]);
+	assert.deepStrictEqual(keys("function test(a, b) boo\n\t\n\treturn \nend"), ["test#1"]);
+	assert.deepStrictEqual(keys("function test(): boo\n\treturn\nend"), ["test#1"], "the same with a colon");
+	assert.deepStrictEqual(keys("function test(): b\n\treturn\nend"), ["test#1"], "an unfinished type");
+	assert.deepStrictEqual(keys("function test() boo\n\treturn 1\nend"), [], "a return with a value is not touched");
+	assert.deepStrictEqual(keys("function test() boo\n\tprint(1)\n\treturn\nend"), [], "other code in the body");
+	assert.deepStrictEqual(keys("function test(): bool\n\treturn\nend"), [], "a good type");
+	// What is not a mistyped type: code on the same line, a call, an assignment, a keyword.
+	for (const text of ["function f() return 1 end", "function f() print(1)\n\treturn\nend", "function f() x = 1\n\treturn\nend", "function f() end"])
+	{
+		assert.strictEqual(findFunctionShapes(text)[0].stray, null, text);
+	}
+	// The `)` of the header: where a written type goes.
+	const header = "function test(a, b) boo";
+	assert.strictEqual(findFunctionShapes(header + "\n\treturn\nend")[0].closeEnd, header.indexOf(")") + 1);
+	// Bug 2: the value of a return is erased: the text is the same as one that was never filled in.
+	assert.deepStrictEqual(keys("function test()\n\treturn 123\nend"), []);
+	assert.deepStrictEqual(keys("function test()\n\treturn \nend"), ["test#1"]);
+	assert.deepStrictEqual(keys("function test(): boo\n\treturn \nend"), ["test#1"]);
+	assert.deepStrictEqual(keys("function test(): boo\n\treturn 12\nend"), []);
+	// An edit inside the return line belongs to the function: its lines run from the `)` to the `end`.
+	const s2 = findFunctionShapes("function test()\n\treturn \nend")[0];
+	assert.deepStrictEqual([s2.closeLine, s2.endLine, s2.returns[0].line], [0, 2, 1]);
+});
+
+test("returnHelper: Ctrl+Z of what erased a value counts as an edit, the undo of the removal itself does not come back", function ()
+{
+	// The editor part is a set of rules over the module state; they are in the handler of returnHintEditor.
+	const source = fs.readFileSync(path.join(__dirname, "..", "src", "returnHintEditor.js"), "utf8");
+	assert.ok(/suppressed/.test(source) && /undoing \? \[\] : result\.removeBare/.test(source), "an undo does not use the memory of the old type");
+	assert.ok(/state\.suppressed\.add\(key\)/.test(source), "our own removal is remembered");
+	assert.ok(/touched\.forEach\(k => state\.suppressed\.delete\(k\)\)/.test(source), "an edit of the user ends the protection");
+	assert.ok(/touched\.includes\(k\) && !state\.suppressed\.has\(k\)/.test(source));
+});
+
+const LC_TEXT = [
+	"class Car",
+	"    function move(speed: float = 1.0)",
+	"        local acc = 2",
+	"        local k = 5",
+	"        local tmp = 9",
+	"        local total = acc * speed",
+	"        self.hp = total + k",
+	"        local t = { acc = 1 }",
+	"        print(obj.acc, \"acc\") -- acc",
+	"        acc = acc + speed",
+	"        #X",
+	"        if acc > 3 then return acc > 3 end",
+	"        return total > 3",
+	"    end",
+	"    function update()",
+	"        self:move(1)",
+	"        move(2)",
+	"    end",
+	"end",
+].join("\n");
+const LC_LINE = 10;
+
+test("liveDirectives commands: show_all, type, trace and calls look around", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const { t } = require("../src/i18n");
+	const at = (d) => LC_TEXT.replace("#X", d);
+	const preview = (d, o) => ld.previewFor(at(d), LC_LINE, ld.parseDirective(d, o), o);
+	// show_all: the places of the name; a table key and the field of another object are no places.
+	const all = ld.findPlaces(at("#acc >show_all"), LC_LINE, "acc");
+	assert.deepStrictEqual(all.map(p => [p.line, p.kind]), [[2, "declaration"], [5, "use"], [9, "assignment"], [11, "use"]]);
+	assert.strictEqual(preview("#acc >show_all").places.length, 4);
+	assert.ok(preview("#acc >show_all").preview.startsWith(t("liveDir.all", 4, "").slice(0, 9)));
+	assert.deepStrictEqual(ld.findPlaces(at("#speed >show_all"), LC_LINE, "speed").map(p => [p.line, p.kind]), [[1, "parameter"], [5, "use"], [9, "use"]]);
+	assert.deepStrictEqual(ld.findPlaces(at("#return >show_all"), LC_LINE, "return").map(p => p.line), [11, 12]);
+	assert.deepStrictEqual(ld.findPlaces(at("#self.hp >show_all"), LC_LINE, "self.hp").map(p => p.line), [6]);
+	assert.deepStrictEqual(ld.findPlaces(at("#acc >show_all"), LC_LINE, "acc", { maxSearchDistance: 3 }).map(p => p.line), [9, 11], "the distance is a limit (the declaration is 8 lines up)");
+	assert.strictEqual(ld.previewFor(at("#zzz >show_all"), LC_LINE, ld.parseDirective("#zzz >show_all"), {}).preview, t("liveDir.notFound", "zzz", 200));
+	// type: the type and its source, the union of the returns
+	assert.strictEqual(preview("#acc >type").preview, t("liveDir.type", "int", t("liveDir.typeFrom", "local acc = 2", 3)), "the declaration tells the type when the nearest place does not");
+	assert.strictEqual(preview("#speed >type").preview.includes("float"), true);
+	assert.strictEqual(preview("#return >type").preview, t("liveDir.type", "bool", t("liveDir.typeReturns", 2, "12, 13")));
+	assert.strictEqual(ld.typeInfo("function f(a)\n    if a then return 1 end\n    #X\n    return \"no\"\nend", 2, "return").type, "int|string", "a union");
+	assert.strictEqual(ld.typeInfo("function f(a)\n    if a then return 1 end\n    #X\n    return g(a)\nend", 2, "return").type, null, "one return that cannot be told");
+	assert.ok(preview("#total >type").preview.startsWith(t("liveDir.typeUnknown", "").slice(0, 10)));
+	// trace: up to 3 steps, each from a name the step before is made of
+	const steps = ld.traceChain(at("#total >trace"), LC_LINE, "total");
+	assert.deepStrictEqual(steps.map(s => [s.name, s.line]), [["total", 5], ["acc", 2]]);
+	assert.deepStrictEqual(ld.traceChain("local a = 1\nlocal b = a + 1\nlocal c = b * 2\nlocal d = c - 1\n#d >trace", 4, "d").map(s => s.name), ["d", "c", "b"], "at most 3 steps");
+	assert.deepStrictEqual(ld.traceChain("function f(p)\n    local x = p * 2\n    #x >trace\nend", 2, "x").map(s => [s.name, s.kind]), [["x", "declaration"], ["p", "parameter"]]);
+	assert.strictEqual(ld.traceChain(at("#return >trace"), LC_LINE, "return")[0].name, "return", "the return is followed too");
+	assert.strictEqual(preview("#total >trace").steps.length, 2);
+	assert.ok(preview("#total >trace").preview.includes(" ← "));
+	assert.strictEqual(preview("#total >trace", { maxPreviewLength: 20 }).preview.length <= 20, true, "cut");
+	// calls: with the class and the method they are in
+	const calls = ld.findCalls(at("#move >calls"), LC_LINE, "move");
+	assert.deepStrictEqual(calls.map(c => [c.line, c.where]), [[15, "Car:update"], [16, "Car:update"]]);
+	assert.deepStrictEqual(ld.findCalls(at("#move >calls"), LC_LINE, "move", { maxSearchDistance: 4 }), [], "the distance is a limit");
+	assert.strictEqual(preview("#move >calls").preview, t("liveDir.calls", 2, t("liveDir.callShort", 16, "Car:update") + ", " + t("liveDir.callShort", 17, "Car:update")));
+	assert.strictEqual(preview("#nothing >calls").preview, t("liveDir.noCalls", "nothing"));
+	assert.strictEqual(ld.contextName(LC_TEXT.split("\n"), require("../src/hints").findFunctionShapes(LC_TEXT), 15), "Car:update");
+	// The commands in a comment and the limits that all of them respect.
+	assert.strictEqual(preview("-- #acc >show_all").places.length, 4);
+	assert.strictEqual(preview("#acc >show_all", { ignoredTargets: ["acc"] }), null);
+	assert.strictEqual(preview("#acc >type", { ignoredTargets: ["a*"] }), null);
+});
+
+test("liveDirectives commands: sign, const, rename and unused change or mark code", function ()
+{
+	const ld = require("../src/liveDirectives");
+	const { t } = require("../src/i18n");
+	const at = (d) => LC_TEXT.replace("#X", d);
+	const apply = (d, o) => ld.applyDirectiveCommand(at(d), LC_LINE, ld.parseDirective(d, o), "    ", "\n", o || {});
+	const row = (r, n) => r.text.split("\n")[n];
+	// sign: the type of the returns in the header, the type of a variable at its declaration
+	assert.strictEqual(row(apply("#return >sign"), 1), "    function move(speed: float = 1.0): bool");
+	assert.strictEqual(apply("#return >sign").text.split("\n").length, LC_TEXT.split("\n").length - 1, "the directive line goes");
+	assert.strictEqual(row(apply("#acc >sign"), 2), "        local acc: int = 2");
+	assert.strictEqual(apply("#total >sign").reason, "unknown", "the type cannot be told from `acc * speed`");
+	assert.strictEqual(ld.applyDirectiveCommand("function f()\n    #X\n    return 1\nend".replace("#X", "#return >sign"), 1, ld.parseDirective("#return >sign"), "    ", "\n").text, "function f(): int\n    return 1\nend");
+	assert.strictEqual(ld.applyDirectiveCommand("function f(): string\n    #return >sign\n    return 1\nend", 1, ld.parseDirective("#return >sign"), "    ", "\n").reason, "exists");
+	assert.strictEqual(ld.applyDirectiveCommand("local x: int = 1\n#x >sign", 1, ld.parseDirective("#x >sign"), "    ", "\n").reason, "exists");
+	assert.strictEqual(ld.applyDirectiveCommand("local x <const> = 1\n#x >sign", 1, ld.parseDirective("#x >sign"), "    ", "\n").text, "local x: int <const> = 1", "the type goes before the attribute");
+	assert.strictEqual(ld.applyDirectiveCommand("function f()\n    #return >sign\nend", 1, ld.parseDirective("#return >sign"), "    ", "\n").reason, "noReturn");
+	assert.strictEqual(ld.applyDirectiveCommand("#return >sign", 0, ld.parseDirective("#return >sign"), "    ", "\n").reason, "noFunction");
+	assert.strictEqual(ld.previewFor(at("#return >sign"), LC_LINE, ld.parseDirective("#return >sign"), {}).preview, t("liveDir.sign", "bool", "function move(speed: float = 1.0): bool"));
+	// const: only when nothing sets the name again; the type stays in front
+	assert.strictEqual(row(apply("#k >const"), 3), "        local k <const> = 5");
+	assert.strictEqual(apply("#acc >const").reason, "changed");
+	assert.strictEqual(ld.constPlan(at("#acc >const"), LC_LINE, "acc").line, 9);
+	assert.strictEqual(ld.applyDirectiveCommand("local x: int = 1\n#x >const", 1, ld.parseDirective("#x >const"), "    ", "\n").text, "local x: int <const> = 1");
+	assert.strictEqual(ld.applyDirectiveCommand("local x <const> = 1\n#x >const", 1, ld.parseDirective("#x >const"), "    ", "\n").reason, "already");
+	assert.strictEqual(ld.applyDirectiveCommand("self.x = 1\n#self.x >const", 1, ld.parseDirective("#self.x >const"), "    ", "\n").reason, "badTarget");
+	assert.strictEqual(ld.previewFor(at("#k >const"), LC_LINE, ld.parseDirective("#k >const"), {}).preview, t("liveDir.constAdd", "local k <const> = 5"));
+	assert.strictEqual(ld.previewFor(at("#acc >const"), LC_LINE, ld.parseDirective("#acc >const"), {}).preview, t("liveDir.const.changed", "acc", 10));
+	// rename: in the function, not in strings, comments, table keys or the fields of other objects
+	const renamed = apply("#acc >rename = sum");
+	assert.deepStrictEqual([2, 5, 7, 8, 9, 10].map(n => row(renamed, n)), [
+		"        local sum = 2", "        local total = sum * speed", "        local t = { acc = 1 }", "        print(obj.acc, \"acc\") -- acc",
+		"        sum = sum + speed", "        if sum > 3 then return sum > 3 end"]);
+	assert.strictEqual(ld.renamePlan(at("#acc >rename = sum"), LC_LINE, "acc", "sum").count, 6);
+	assert.strictEqual(ld.renamePlan(at("#acc >rename = k"), LC_LINE, "acc", "k").reason, "taken");
+	assert.strictEqual(ld.renamePlan(at("#acc >rename = 9x"), LC_LINE, "acc", "9x").reason, "badName");
+	assert.strictEqual(ld.renamePlan(at("#acc >rename = end"), LC_LINE, "acc", "end").reason, "badName");
+	assert.strictEqual(ld.renamePlan(at("#acc >rename"), LC_LINE, "acc", "").reason, "needName");
+	assert.strictEqual(ld.renamePlan(at("#return >rename = x"), LC_LINE, "return", "x").reason, "badTarget");
+	assert.strictEqual(ld.renamePlan(at("#zzz >rename = x"), LC_LINE, "zzz", "x").reason, "notFound");
+	assert.strictEqual(row(apply("#self.hp >rename = life"), 6), "        self.life = total + k", "a field: in the file");
+	assert.strictEqual(row(apply("#self.hp >rename = self.life"), 6), "        self.life = total + k");
+	assert.strictEqual(ld.renamePlan("function a()\n    local x = 1\n    #x >rename = y\nend\nfunction b()\n    local x = 2\nend", 2, "x", "y").text, "function a()\n    local y = 1\nend\nfunction b()\n    local x = 2\nend", "only the function around");
+	assert.strictEqual(ld.renamePlan("function a(p)\n    #p >rename = q\n    return p + 1\nend", 1, "p", "q").text, "function a(q)\n    return q + 1\nend", "a parameter");
+	// The limits: a constant, read-only, ignored names; the commands that only look are never carried out
+	assert.strictEqual(apply("#acc >rename = sum", { allowModify: false }).reason, "readOnly");
+	assert.strictEqual(apply("#acc >sign", { allowModify: false }).reason, "readOnly");
+	assert.strictEqual(apply("#k >const", { ignoredTargets: ["k"] }).reason, "ignored");
+	assert.strictEqual(ld.applyDirectiveCommand("local c <const> = 1\n#c >rename = d", 1, ld.parseDirective("#c >rename = d"), "    ", "\n").reason, "const");
+	assert.strictEqual(ld.applyDirectiveCommand("local c <const> = 1\n#c >rename = d", 1, ld.parseDirective("#c >rename = d"), "    ", "\n", { skipConst: false }).reason, "ok");
+	assert.strictEqual(apply("#acc >show_all").reason, "view");
+	assert.strictEqual(ld.previewFor(at("#acc >sign"), LC_LINE, ld.parseDirective("#acc >sign"), { allowModify: false }).preview, t("liveDir.readOnly"));
+	assert.strictEqual(ld.previewFor(at("#acc >rename = sum"), LC_LINE, ld.parseDirective("#acc >rename = sum"), {}).preview, t("liveDir.rename", 6, "acc", "sum", "move"));
+	assert.strictEqual(ld.previewFor(at("#acc >rename"), LC_LINE, ld.parseDirective("#acc >rename"), {}).preview, t("liveDir.rename.needName", "", "acc"));
+	// unused: the declaration, and what reads the name after it
+	const unused = (target) => ld.unusedInfo(at("#" + target + " >unused"), LC_LINE, target);
+	assert.deepStrictEqual([unused("tmp").declaration.line, unused("tmp").uses.length], [4, 0]);
+	assert.strictEqual(unused("total").uses.length, 2);
+	assert.strictEqual(unused("acc").uses.length >= 1, true, "`acc = acc + speed` reads it");
+	assert.strictEqual(unused("zzz").declaration, null);
+	assert.strictEqual(ld.unusedInfo("local a = 1\na = 2\n#a >unused", 2, "a").uses.length, 0, "an assignment that only sets it is no reading");
+	assert.strictEqual(ld.previewFor(at("#tmp >unused"), LC_LINE, ld.parseDirective("#tmp >unused"), {}).preview, t("liveDir.unused", 5));
+	assert.strictEqual(ld.previewFor(at("#tmp >unused"), LC_LINE, ld.parseDirective("#tmp >unused"), {}).declaration.line, 4);
+	assert.strictEqual(ld.previewFor(at("#total >unused"), LC_LINE, ld.parseDirective("#total >unused"), {}).preview, t("liveDir.used", 2, 7));
+});
+
+test("liveDirectives commands: completion, aliases, the settings and the keys of the editor", function ()
+{
+	const ld = require("../src/liveDirectives");
+	assert.deepStrictEqual(ld.COMMANDS, ["show_up", "show_down", "show_all", "type", "sign", "trace", "rename", "const", "unused", "calls"]);
+	assert.deepStrictEqual(ld.MODIFY_COMMANDS, ["sign", "const", "rename"]);
+	const items = ld.completionsFor("#acc >", 0, 6);
+	assert.deepStrictEqual(items.map(i => i.label), ld.COMMANDS);
+	assert.ok(items.every(i => i.kind == "command" && i.detail && i.documentation && !/^liveDir\./.test(i.detail + i.documentation)));
+	// A command that takes a value: `#acc >rename = total`
+	assert.deepStrictEqual(ld.parseDirective("#acc >rename = total"), { indent: "", comment: false, target: "acc", op: "rename", expr: "total" });
+	assert.deepStrictEqual(ld.parseDirective("-- #self.hp >rename = self.life"), { indent: "", comment: true, target: "self.hp", op: "rename", expr: "self.life" });
+	assert.strictEqual(ld.parseDirective("#acc >rename").expr, "");
+	assert.strictEqual(ld.parseDirective("#acc >type").expr, "");
+	assert.strictEqual(ld.parseDirective("#x = 5").expr, "5");
+	for (const [d, active, modifying] of [["#a >show_up", true, false], ["#a >show_all", true, false], ["#a >type", true, false], ["#a >trace", true, false], ["#a >unused", true, false], ["#a >calls", true, false],
+		["#a >sign", true, true], ["#a >const", true, true], ["#a >rename = b", true, true], ["#a >rename", true, true], ["#a = 1", true, true], ["#a =", false, true], ["#a >", false, false], ["#a >nope", false, false]])
+	{
+		assert.deepStrictEqual([ld.isActive(ld.parseDirective(d)), ld.isModifying(ld.parseDirective(d))], [active, modifying], d);
+	}
+	// The aliases and a new separator work for every command, also the ones with a value.
+	const syn = { prefix: "@", commandSeparator: "::", commandAliases: { r: "rename", s: "sign", all: "show_all" } };
+	assert.deepStrictEqual(ld.parseDirective("@acc :: r = sum", syn), { indent: "", comment: false, target: "acc", op: "rename", expr: "sum" });
+	assert.strictEqual(ld.parseDirective("@return::s", syn).op, "sign");
+	assert.strictEqual(ld.parseDirective("-- @acc::all", syn).op, "show_all");
+	assert.deepStrictEqual(ld.completionsFor("@acc ::", 0, 7, syn).map(i => i.label), ld.COMMANDS.concat(["r", "s", "all"]));
+	const text = "function f()\n    local acc = 2\n    @acc::r = sum\n    return acc\nend";
+	assert.strictEqual(ld.applyDirectiveCommand(text, 2, ld.parseDirective("    @acc::r = sum", syn), "    ", "\n", syn).text, "function f()\n    local sum = 2\n    return sum\nend");
+	// The settings accept them
+	const settingsModel = require("../src/settingsModel");
+	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+	assert.deepStrictEqual(pkg.contributes.configuration.properties["plua.liveDirectives.commandAliases"].additionalProperties.enum, ld.COMMANDS);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.liveDirectives.commandAliases", { r: "rename", c: "calls", u: "unused" }).ok, true);
+	assert.strictEqual(settingsModel.validateChange(pkg, "plua.liveDirectives.commandAliases", { r: "format" }).ok, false);
+	// Every command has its texts, in both languages
+	const i18n = require("../src/i18n");
+	for (const c of ld.COMMANDS)
+	{
+		assert.notStrictEqual(i18n.t("liveDir.cmd." + c), "liveDir.cmd." + c, c);
+		assert.notStrictEqual(i18n.t("liveDir.cmdDoc." + c), "liveDir.cmdDoc." + c, c);
+	}
+	for (const key of ["liveDir.all", "liveDir.type", "liveDir.sign", "liveDir.sign.exists", "liveDir.constAdd", "liveDir.const.changed", "liveDir.rename", "liveDir.rename.taken", "liveDir.unused",
+		"liveDir.used", "liveDir.calls", "liveDir.noCalls", "liveDir.removeDecl", "liveDir.unusedNote", "liveDir.hoverPlaces", "liveDir.hoverSteps", "liveDir.kind.use"])
+	{
+		assert.notStrictEqual(i18n.t(key), key, key);
+	}
+	// The editor: the quick fix for an unused variable, the hint that fades it, the hover with the places.
+	const source = fs.readFileSync(path.join(__dirname, "..", "src", "liveDirectivesEditor.js"), "utf8");
+	assert.ok(/plua\.liveDirectives\.removeDeclaration/.test(source) && /DiagnosticTag\.Unnecessary/.test(source) && /liveDir\.hoverPlaces/.test(source) && /applyDirectiveCommand/.test(source));
+});

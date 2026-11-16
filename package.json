@@ -14,7 +14,7 @@
 		"linter",
 		"settings"
 	],
-	"version": "0.29.7",
+	"version": "0.19.0",
 	"publisher": "Lirniri",
 	"icon": "icon.png",
 	"repository": "https://github.com/PlutoLang/Syntax-Highlighting",
@@ -134,6 +134,83 @@
 				"when": "editorTextFocus && !editorReadonly"
 			},
 			{
+				"command": "plua.liveDirectives.dismiss",
+				"key": "escape",
+				"when": "editorTextFocus && plua.onDirectiveLine && !suggestWidgetVisible && !editorHasSelection && !inSnippetMode && !findWidgetVisible && !parameterHintsVisible"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "ctrl+space",
+				"args": ["editor.action.triggerSuggest", "hold"],
+				"when": "editorTextFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "ctrl+shift+space",
+				"args": ["editor.action.triggerParameterHints", "hold"],
+				"when": "editorTextFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "down",
+				"args": ["selectNextSuggestion", "hold"],
+				"when": "suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "up",
+				"args": ["selectPrevSuggestion", "hold"],
+				"when": "suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "pagedown",
+				"args": ["selectNextPageSuggestion", "hold"],
+				"when": "suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "pageup",
+				"args": ["selectPrevPageSuggestion", "hold"],
+				"when": "suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "escape",
+				"args": ["hideSuggestWidget", "release"],
+				"when": "suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "enter",
+				"args": ["acceptSelectedSuggestion", "release"],
+				"when": "acceptSuggestionOnEnter && suggestWidgetHasFocusedSuggestion && suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "tab",
+				"args": ["acceptSelectedSuggestion", "release"],
+				"when": "suggestWidgetHasFocusedSuggestion && suggestWidgetVisible && textInputFocus && plua.idleArmed"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "down",
+				"args": ["showNextParameterHint", "hold"],
+				"when": "editorTextFocus && parameterHintsVisible && plua.idleArmed && parameterHintsMultipleSignatures && !suggestWidgetVisible"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "up",
+				"args": ["showPrevParameterHint", "hold"],
+				"when": "editorTextFocus && parameterHintsVisible && plua.idleArmed && parameterHintsMultipleSignatures && !suggestWidgetVisible"
+			},
+			{
+				"command": "plua.idle.key",
+				"key": "escape",
+				"args": ["closeParameterHints", "release"],
+				"when": "editorTextFocus && parameterHintsVisible && plua.idleArmed && !suggestWidgetVisible"
+			},
+			{
 				"command": "plua.shiftDelete",
 				"key": "shift+delete",
 				"when": "editorTextFocus && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && (editorLangId == pluto || editorLangId == lua && config.plua.lua.enable)"
@@ -181,6 +258,98 @@
 					"type": "boolean",
 					"default": false,
 					"markdownDescription": "%plua.autoIndent.trimOnSave.markdownDescription%"
+				},
+				"plua.liveDirectives.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.liveDirectives.enabled.markdownDescription%"
+				},
+				"plua.liveDirectives.maxPreviewLength": {
+					"type": "integer",
+					"default": 60,
+					"minimum": 10,
+					"maximum": 500,
+					"markdownDescription": "%plua.liveDirectives.maxPreviewLength.markdownDescription%"
+				},
+				"plua.liveDirectives.maxContextLines": {
+					"type": "integer",
+					"default": 3,
+					"minimum": 1,
+					"maximum": 30,
+					"markdownDescription": "%plua.liveDirectives.maxContextLines.markdownDescription%"
+				},
+				"plua.liveDirectives.maxSearchDistance": {
+					"type": "integer",
+					"default": 200,
+					"minimum": 5,
+					"maximum": 5000,
+					"markdownDescription": "%plua.liveDirectives.maxSearchDistance.markdownDescription%"
+				},
+				"plua.liveDirectives.allowModify": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.liveDirectives.allowModify.markdownDescription%"
+				},
+				"plua.liveDirectives.skipConst": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.liveDirectives.skipConst.markdownDescription%"
+				},
+				"plua.liveDirectives.ignoredTargets": {
+					"type": "array",
+					"items": { "type": "string" },
+					"default": [],
+					"markdownDescription": "%plua.liveDirectives.ignoredTargets.markdownDescription%"
+				},
+				"plua.liveDirectives.prefix": {
+					"type": "string",
+					"default": "#",
+					"maxLength": 3,
+					"markdownDescription": "%plua.liveDirectives.prefix.markdownDescription%"
+				},
+				"plua.liveDirectives.commandSeparator": {
+					"type": "string",
+					"default": ">",
+					"maxLength": 4,
+					"markdownDescription": "%plua.liveDirectives.commandSeparator.markdownDescription%"
+				},
+				"plua.liveDirectives.commandAliases": {
+					"type": "object",
+					"additionalProperties": { "type": "string", "enum": ["show_up", "show_down", "show_all", "type", "sign", "trace", "rename", "const", "unused", "calls"] },
+					"default": {},
+					"markdownDescription": "%plua.liveDirectives.commandAliases.markdownDescription%"
+				},
+				"plua.liveDirectives.completion": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.liveDirectives.completion.markdownDescription%"
+				},
+				"plua.liveDirectives.inComments": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.liveDirectives.inComments.markdownDescription%"
+				},
+				"plua.returnHelper.removeReturnWhenTypeMissing": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.returnHelper.removeReturnWhenTypeMissing.markdownDescription%"
+				},
+				"plua.returnHelper.moveCursorToReturnOnIdle": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.returnHelper.moveCursorToReturnOnIdle.markdownDescription%"
+				},
+				"plua.returnHelper.idleDelayMs": {
+					"type": "integer",
+					"default": 2000,
+					"minimum": 200,
+					"maximum": 60000,
+					"markdownDescription": "%plua.returnHelper.idleDelayMs.markdownDescription%"
+				},
+				"plua.returnHelper.enableReturnDirective": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "%plua.returnHelper.enableReturnDirective.markdownDescription%"
 				},
 				"plua.layoutFixer.enabled": {
 					"type": "boolean",

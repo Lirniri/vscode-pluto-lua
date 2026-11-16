@@ -212,6 +212,19 @@ function functionHeader(tokens, fi, text)
 	return out;
 }
 
+/** The prefix of the live directives (`#` by default): a `return` that comes right after it is a directive, not a statement. */
+let directivePrefix = "#";
+function setDirectivePrefix(prefix)
+{
+	directivePrefix = typeof prefix == "string" && prefix.length && !prefix.includes(" ") && !prefix.includes("\t") ? prefix : "#";
+}
+
+function isDirectiveReturn(text, offset)
+{
+	const lineStart = text.lastIndexOf(String.fromCharCode(10), offset - 1) + 1;
+	return text.slice(lineStart, offset).trimEnd().endsWith(directivePrefix);
+}
+
 /**
  * The functions of a text with what is in their bodies as far as `return` goes: the return type if there is one (and
  * whether a `:` stands after the `)`), every `return` of the function itself (not of the functions inside of it), and
@@ -232,7 +245,7 @@ function findFunctionShapes(text)
 	{
 		const tok = tokens[idx];
 		const around = [...stack].reverse().find(e => e.name == "function");
-		if (around && around.header && idx >= around.header.bodyStart)
+		if (around && around.header && idx >= around.header.bodyStart && idx != around.strayIdx)
 		{
 			++around.bodyTokens;
 		}
@@ -253,7 +266,7 @@ function findFunctionShapes(text)
 					{
 						const r = entry.returns;
 						out.push({
-							key: entry.key, name: entry.fname, closeLine: tokens[entry.header.close].line, hasColon: entry.header.hasColon,
+							key: entry.key, name: entry.fname, line: entry.fline, params: entry.params, closeLine: tokens[entry.header.close].line, hasColon: entry.header.hasColon, closeEnd: tokens[entry.header.close].end, stray: entry.stray || null,
 							retType: entry.header.retType, returns: r, onlyBareReturn: r.length == 1 && r[0].bare && entry.bodyTokens == 2, bodyEmpty: r.length == 0 && entry.bodyTokens == 1, endLine: tok.line,
 						});
 					}
@@ -287,6 +300,34 @@ function findFunctionShapes(text)
 				if (entry.header)
 				{
 					entry.fname = text.slice(tokens[idx].end, tokens[entry.header.open].off).trim();
+					entry.fline = tok.line;
+					// `function test() boo`: a lone name behind the `)`, on the same line and with nothing after it, is a mistyped type.
+					const after = tokens[entry.header.close + 1];
+					const beyond = tokens[entry.header.close + 2];
+					entry.strayIdx = -1;
+					if (after && !entry.header.hasColon && isId(after) && !RESERVED.has(after.v) && after.line == tokens[entry.header.close].line && (!beyond || beyond.line != after.line))
+					{
+						entry.strayIdx = entry.header.close + 1;
+						entry.stray = after.v;
+					}
+					entry.params = [];
+					let pd = 0;
+					for (let k = entry.header.open + 1; k < entry.header.close; ++k)
+					{
+						const pt = tokens[k];
+						if (isP(pt, "(") || isP(pt, "{") || isP(pt, "["))
+						{
+							++pd;
+						}
+						else if (isP(pt, ")") || isP(pt, "}") || isP(pt, "]"))
+						{
+							--pd;
+						}
+						else if (pd == 0 && isId(pt) && (isP(tokens[k - 1], "(") || isP(tokens[k - 1], ",")))
+						{
+							entry.params.push({ name: pt.v, line: pt.line });
+						}
+					}
 					const n = (seen.get(entry.fname) || 0) + 1;
 					seen.set(entry.fname, n);
 					entry.key = entry.fname + "#" + n;
@@ -297,9 +338,9 @@ function findFunctionShapes(text)
 		else if (v == "return")
 		{
 			const owner = [...stack].reverse().find(e => e.name == "function");
-			if (!owner || !owner.header)
+			if (!owner || !owner.header || isDirectiveReturn(text, tok.off))
 			{
-				continue;
+				continue; // `#return = x` is a directive of the editor, not a statement
 			}
 			// The statement: what follows on the line, and further as long as a bracket is open.
 			let depth = 0;
@@ -1089,6 +1130,6 @@ function suggestionsAt(text, offset, options, extra)
 }
 
 module.exports = {
-	untypedParamAt, findFunctionShapes, findUnknownTypes, returnColonAt, returnValuesAt, enclosingReturnType, findReturnProblems, functionHeader,
+	untypedParamAt, findFunctionShapes, setDirectivePrefix, findUnknownTypes, returnColonAt, returnValuesAt, enclosingReturnType, findReturnProblems, functionHeader,
 	caseColonAt, caseNoColonAt, caseBreakAt, caseWordsAt, findCaseFallthroughs, suggestionsAt, classMembers, constructorSuggestionsAt,
 };

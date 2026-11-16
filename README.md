@@ -52,6 +52,7 @@ What is in it, by group. Most of it works in `.pluto` files, much of it in `.lua
 - **Keyboard layout fixer**: text typed on a Cyrillic layout by mistake (`дщсфд`) turns into the English keys of the same place (`local`) while you type or at the end of a word; `Э` / `э` open a string at once and the Russian text inside stays. See [Keyboard layout fixer](#keyboard-layout-fixer).
 - **Smart indentation on Enter**: empty lines inside blocks keep their indentation (the indent guides are not cut), and the line after `case ...:` is indented. See [Auto indent](#auto-indent).
 - **`return` for a typed function**: Enter after the header of a function with a return type other than `void` (`function is_alive(entity: int): bool`) leaves an empty line for the cursor and puts a `return ` line under it, before the added `end` (`plua.format.autoReturn`). Delete the type again and a bare `return` goes with it (after a short pause, once the `:` is gone); a `return` that has a value stays, and a grey note at the end of the header says what the function returns, what it does and that the data type is not set, with the code on hover and a quick fix **Remove the return?** (`plua.diagnostics.returnHint`).
+- **Return helper** (`plua.returnHelper.*`, the **Return** tab): a bare `return` is removed when its function has no usable return type (none, deleted, or not a type such as `boo`), a `return` with a value never; when the cursor rests on the empty line above the `return ` that Enter made, the empty line goes and the cursor moves behind `return ` (`idleDelayMs`, 2000 ms); and a line `#return = <expression>` in a function body becomes the `return` at the end of the function on Enter or after a pause. Ctrl+Z takes each of them back.
 - **Compilers**: a list of interpreters and compilers (`plua.compilers.list`) that check `.pluto` and `.lua` files, managed with the Add and Remove buttons. See [Compilers](#compilers).
 
 The smart delete keys (Backspace / Delete twice on `end`, Shift + Backspace and Shift + Delete by pieces) and the automatic `end` work in `.lua` files too, except for what only Pluto has (`class`, `switch`, `try`, `enum`, `->`).
@@ -157,6 +158,22 @@ The messages of the extension (labels in hovers and completion, built-in diagnos
 | `plua.format.autoReturn` | `true` | Enter after the header of a function with a return type other than `void` adds a `return ` line below the empty line of the cursor. |
 | `plua.diagnostics.returnHint` | `true` | After the return type of a function is deleted: a grey note about what it returns (with the code on hover) and a quick fix that removes the `return`. |
 | `plua.diagnostics.unknownTypes` | `warning` | A type that is not built in and is no known class or enum (`function f(a: Foo): test`): `warning`, `error` or `off`. |
+| `plua.returnHelper.removeReturnWhenTypeMissing` | `true` | Remove a bare `return` when the function has no usable return type (none, deleted, or not a type such as `boo`); a `return` with a value stays. |
+| `plua.returnHelper.moveCursorToReturnOnIdle` | `true` | When the cursor rests on the empty line above the auto-made `return `, the empty line goes and the cursor moves behind `return `. |
+| `plua.returnHelper.idleDelayMs` | `2000` | How long the cursor must rest, in milliseconds. |
+| `plua.returnHelper.enableReturnDirective` | `true` | `#return = <expression>` in a function body becomes the `return` at its end. |
+| `plua.liveDirectives.enabled` | `true` | Live directives `#<target> = <value>` and `#<target> >show_up` / `>show_down` (also as `-- #...`). |
+| `plua.liveDirectives.maxPreviewLength` | `60` | The longest grey note in characters, a longer one is cut with `…`. |
+| `plua.liveDirectives.maxContextLines` | `3` | Lines of code in the hover around the found place. |
+| `plua.liveDirectives.maxSearchDistance` | `200` | How many lines above / below are searched. |
+| `plua.liveDirectives.completion` | `true` | Completion after `#` and after `#<target> >`. |
+| `plua.liveDirectives.inComments` | `true` | Also on lines in a comment (`-- #speed >show_up`). |
+| `plua.liveDirectives.allowModify` | `true` | Allow `=` to change values; when off only `>show_up` / `>show_down` work. |
+| `plua.liveDirectives.skipConst` | `true` | Do not change a constant (`<const>`, `const`). |
+| `plua.liveDirectives.ignoredTargets` | `[]` | Names the directives ignore (`*` stands for any characters). |
+| `plua.liveDirectives.prefix` | `#` | The sign that starts a directive (`@`, `$`, ...). |
+| `plua.liveDirectives.commandSeparator` | `>` | The sign before a command (`::`, `->`, ...). |
+| `plua.liveDirectives.commandAliases` | `{}` | Other names of the commands, e.g. `{ "up": "show_up" }`. |
 | `plua.quickDeleteEnd` | `true` | Backspace / Delete twice in a row on a line with only `end` removes the line and puts the cursor at the end of the line above. |
 | `plua.quickDeleteEndDoubleMs` | `1500` | How long after the first press the second one still counts, in milliseconds. |
 | `plua.shiftDeleteFromNextLine` | `true` | Shift + Delete on an empty line deletes pieces of the nearest line with text below it (an `end` is one piece). |
@@ -426,9 +443,33 @@ Typed `дщсфд ы = ЭПриветЭ` with the Russian layout on? It becomes 
 
 An empty line inside a block loses its indentation when you leave it (`editor.trimAutoWhitespace`), and the indent guide is cut. With `plua.autoIndent.preserveEmptyLines`, pressing Enter on an empty line inside a block gives both the line you leave and the new one the indentation of the block: that of the last line with code above, one level deeper after `do`, `then`, `else`, `repeat`, `function(...)`, `case ...:`, `default:`, `class`, `try` or an open `{`, `[`, `(`. The size of a level (a tab, or spaces) comes from the editor (`editor.insertSpaces`, `editor.tabSize`). `plua.autoIndent.indentAfterCase` chooses whether the line after `case ...:` and `default:` is indented; `plua.autoIndent.trimOnSave` removes the whitespace of empty lines when a file is saved. Ctrl+Z takes back the Enter together with the indentation.
 
+### Live directives
+
+A line that starts with `#` works on a variable, a parameter, a field or the `return` of the function around it. It is a temporary line of the editor (it is not valid code, so it goes when it is done), and the same line behind `--` is a permanent note that stays in the code.
+
+| Line | What it does |
+| --- | --- |
+| `#speed = 2.5` | On Enter, finds the nearest `speed` above (a declaration, an assignment or a parameter, e.g. `function f(speed = 1)`) and puts the new value in; the directive line goes. A field works the same: `#self.hp = 100`. |
+| `#return = self.hp > 0` | Makes the `return` at the end of the function, or replaces the last one (also after a pause). |
+| `#speed >show_up` | Shows the nearest declaration, assignment or `return` of `speed` **above** with its value, type and line. Enter or Esc removes the line. |
+| `#speed >show_down` | Shows the nearest change, use or final `return` **below**. |
+| `#acc >show_all` | Every place of `acc` in its function: the declaration, the assignments, the reads, the returns, with links in the hover. |
+| `#acc >type` | The type that is worked out and where it comes from; `#return >type` gives the union of the types of all the returns (`bool\|string`). |
+| `#return >sign` | On Enter writes the type of the returns into the header (`function f(a): bool`). `#acc >sign` writes it at the declaration (`local acc: int = 2`). |
+| `#acc >trace` | How the value is made, up to 3 steps up, with the code of each step in the hover. |
+| `#acc >rename = total` | On Enter renames a variable in its function (`#self.hp >rename = health` in the file); strings, comments and the fields of other objects (`obj.acc`) stay. |
+| `#acc >const` | On Enter adds `<const>` when nothing sets `acc` again. |
+| `#acc >unused` | Marks a variable that is not read after its declaration; the quick fix removes the declaration. |
+| `#move >calls` | The calls of the function in the file, with the class and method they are in. |
+| `-- #speed >show_up` | The same in a comment: it stays in the code and the grey note follows every change of the file. |
+
+The grey note at the end of the line says what will happen or what was found (`above: local speed = 1.0 (line 12, type float)`, `will replace line 12 with: local speed = 2.5`), cut at `plua.liveDirectives.maxPreviewLength`; the hover has the code around the place (`maxContextLines` lines) and a link to the line. The search goes at most `maxSearchDistance` lines. After `#` the completion offers `return`, the parameters, the locals and the `self.` fields in reach; after `#speed >` it offers `show_up` and `show_down`. Ctrl+Z takes back a change of an `=` line in one step.
+
+The `#` and `>` can be changed (`plua.liveDirectives.prefix`, `commandSeparator`) and the commands can have other names (`commandAliases`), all of it at once, without a restart. A constant (`<const>`) is not changed unless `skipConst` is off; `allowModify` turns the changing off, `ignoredTargets` lists names to leave alone. While a list of suggestions or the parameter hints are open, the timer of the cursor that rests on the empty line above a `return` stands still and runs again when they are closed.
+
 ### Settings panel
 
-Run **Plua: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Compilers, Auto indent, Keyboard layout, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
+Run **Plua: Settings** from the Command Palette (`Ctrl+Shift+P`) to open a window made for this extension. It has a **tab for each group**: General, Index and ignore, Compilers, Return, Live directives, Auto indent, Keyboard layout, Completion, Hover, Outline, Diagnostics, Highlighting, Typing helpers and JSON paths. Every setting has its text, a control that fits it (a switch, a choice, a number, a text, a list with a line for each entry), a **Reset** link, and a mark at the left when it differs from the default. The colors have real **color pickers**: the colors of the highlighting are a table with a row for each kind of token (color, dark theme, light theme, style), and the colors of table braces are a list you can add to and remove from. There is a search that looks in all the tabs.
 
 It reads and writes the same settings as the standard settings editor and `settings.json`: a change is saved at once in your user settings, a value that is the default is taken out of `settings.json` instead of being written there, and what you change in `settings.json` shows up in the panel. A value that is not allowed (a color that is not a color, a number out of range) is refused with the reason, and the control shows the value that is in force. Only the settings of this extension can be changed with it.
 

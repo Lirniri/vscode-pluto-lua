@@ -5,6 +5,7 @@
 "use strict";
 
 const { t } = require("./i18n");
+const { findFunctionShapes } = require("./hints");
 
 /** The longest value that is shown in the note as it is. */
 const SHORT = 30;
@@ -174,4 +175,116 @@ function track(after, flagged, memory)
 	return { flagged: next, removeBare };
 }
 
-module.exports = { inferType, describe, removalRange, track, promisesValue, isVoid, SHORT };
+/**
+ * Whether a return type is a usable one: it promises a value and every plain name in it is known.
+ * @param {string|null} type
+ * @param {(name: string) => boolean} isKnown
+ */
+function typeIsValid(type, isKnown)
+{
+	if (!promisesValue(type))
+	{
+		return false;
+	}
+	if (/[^\w.?|\s{}()[\],:<>]/.test(type))
+	{
+		return false;
+	}
+	for (const name of type.replace(/[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+/g, "").match(/[A-Za-z_]\w*/g) || [])
+	{
+		if (!isKnown(name))
+		{
+			return false;
+		}
+	}
+	return !/\.\s*$/.test(type);
+}
+
+/**
+ * The functions whose body is nothing but a bare `return` and that have no usable return type: the `return` is of no use.
+ * @param {ReturnType<typeof findFunctionShapes>} shapes
+ * @param {(name: string) => boolean} isKnown
+ * @returns {string[]} The keys.
+ */
+function emptyReturnsWithoutType(shapes, isKnown)
+{
+	return shapes.filter(s => s.onlyBareReturn && !isVoid(s.retType) && !typeIsValid(s.retType, isKnown)).map(s => s.key);
+}
+
+/** `#return = <expression>` on a line of its own. */
+const DIRECTIVE = /^[ \t]*#return[ \t]*=[ \t]*(\S.*?)[ \t]*$/;
+
+/** The directive lines of a text: `{ line, expr }`. */
+function findDirectives(text)
+{
+	const out = [];
+	text.split("\n").forEach(function (raw, line)
+	{
+		const m = DIRECTIVE.exec(raw.replace(/\r$/, ""));
+		if (m)
+		{
+			out.push({ line, expr: m[1] });
+		}
+	});
+	return out;
+}
+
+/**
+ * Carries out the directive on line `dir.line`: the line goes, and its expression becomes the `return` at the end of the function
+ * around it (the last statement of the body, when that is a `return`, takes it in; else a new `return` is put before the `end`).
+ * @param {string} text
+ * @param {{ line: number, expr: string }} dir
+ * @param {string} unit One level of indentation.
+ * @param {string} eol
+ * @returns {string|null} The new text, or null when no function is around the line.
+ */
+function applyDirective(text, dir, unit, eol)
+{
+	const shapes = findFunctionShapes(text);
+	const owner = shapes.filter(s => s.closeLine < dir.line && dir.line < s.endLine).sort((a, b) => b.closeLine - a.closeLine)[0];
+	if (!owner)
+	{
+		return null;
+	}
+	const lines = text.split("\n");
+	lines.splice(dir.line, 1);
+	const without = lines.join("\n");
+	const after = findFunctionShapes(without).find(s => s.key == owner.key);
+	if (!after)
+	{
+		return null;
+	}
+	const lineStart = (n) => lines.slice(0, n).reduce((sum, l) => sum + l.length + 1, 0);
+	const endText = lines[after.endLine] || "";
+	const last = after.returns[after.returns.length - 1];
+	if (last && without.slice(last.end, lineStart(after.endLine)).trim() == "")
+	{
+		return without.slice(0, last.start) + "return " + dir.expr + without.slice(last.end);
+	}
+	if (endText.trim() != "end")
+	{
+		return null;
+	}
+	const headerIndent = /^[ \t]*/.exec(lines[after.closeLine])[0];
+	return without.slice(0, lineStart(after.endLine)) + headerIndent + unit + "return " + dir.expr + eol + without.slice(lineStart(after.endLine));
+}
+
+/** The smallest single edit that turns `before` into `after`: `{ start, end, text }` over `before`. */
+function minimalEdit(before, after)
+{
+	let start = 0;
+	while (start < before.length && start < after.length && before[start] == after[start])
+	{
+		++start;
+	}
+	let endB = before.length;
+	let endA = after.length;
+	while (endB > start && endA > start && before[endB - 1] == after[endA - 1])
+	{
+		--endB;
+		--endA;
+	}
+	return { start, end: endB, text: after.slice(start, endA) };
+}
+
+module.exports = { inferType, describe, removalRange, track, promisesValue, isVoid, SHORT, typeIsValid, emptyReturnsWithoutType, DIRECTIVE, findDirectives, applyDirective, minimalEdit };

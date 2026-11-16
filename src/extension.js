@@ -18,7 +18,8 @@ const { registerDefaultValueHint } = require("./defaultValuesEditor");
 const { registerAutoFormat } = require("./autoFormatEditor");
 const { registerLayoutFixer } = require("./layoutFixerEditor");
 const { registerAutoIndent } = require("./autoIndentEditor");
-const { registerReturnHint } = require("./returnHintEditor");
+const { registerReturnHint, armIdle } = require("./returnHintEditor");
+const { registerLiveDirectives } = require("./liveDirectivesEditor");
 const { findFunctionShapes } = require("./hints");
 const { registerHeirsPeek } = require("./heirsPeekEditor");
 const { registerRenameClass } = require("./renameClassEditor");
@@ -437,7 +438,7 @@ function registerAutoClose(context, service)
 						{
 							builder.insert(newLine.range.end, eolText + bodyIndent + "return ");
 						}
-					}, { undoStopBefore: false, undoStopAfter: false }).then(function () { busy = false; }, function () { busy = false; });
+					}, { undoStopBefore: false, undoStopAfter: false }).then(function () { busy = false; if (shape.bodyEmpty) { armIdle(document, openerLine + 1); } }, function () { busy = false; });
 				}
 			}
 			return;
@@ -494,6 +495,10 @@ function registerAutoClose(context, service)
 			const pos = new vscode.Position(openerLine + 1, document.lineAt(openerLine + 1).text.length);
 			editor.selection = new vscode.Selection(pos, pos);
 			busy = false;
+			if (middle)
+			{
+				armIdle(document, openerLine + 1); // the cursor may rest there: it then moves behind the `return `
+			}
 		}, function ()
 		{
 			busy = false;
@@ -1061,7 +1066,8 @@ function activate(context)
 	registerAutoFormat(context, service);
 	registerLayoutFixer(context, service);
 	registerAutoIndent(context, service);
-	registerReturnHint(context);
+	registerReturnHint(context, service);
+	registerLiveDirectives(context);
 	registerHeirsPeek(context, service);
 	registerRenameClass(context, service);
 	registerSettingsPanel(context);

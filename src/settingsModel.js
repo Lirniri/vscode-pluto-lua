@@ -11,6 +11,8 @@ const TABS = [
 	{ id: "general", match: (k) => k == "plua.language" || k == "plua.autoCloseBlocks" || /^plua\.quickDeleteEnd/.test(k) || k == "plua.shiftDeleteByPieces" || k == "plua.shiftBackspaceDeleteFromBelow.enabled" || k == "plua.shiftDeleteFromNextLine" || k == "plua.lua.enable" || k == "plua.lua.indexFiles" },
 	{ id: "index", match: (k) => /^plua.(?:index|workspace)\./.test(k) },
 	{ id: "compilers", match: (k) => /^plua\.compilers\./.test(k) || k == "plua.lua.compilerPath" || k == "plua.lua.checkSyntax" || k == "plua.diagnostics.compilerPath" },
+	{ id: "liveDirectives", match: (k) => /^plua\.liveDirectives\./.test(k) },
+	{ id: "returnHelper", match: (k) => /^plua\.returnHelper\./.test(k) || k == "plua.format.autoReturn" || k == "plua.diagnostics.returnHint" },
 	{ id: "autoIndent", match: (k) => /^plua\.autoIndent\./.test(k) },
 	{ id: "layout", match: (k) => /^plua\.layoutFixer\./.test(k) },
 	{ id: "completion", match: (k) => /^plua\.completion\./.test(k) },
@@ -171,6 +173,23 @@ function validateChange(pkg, key, value)
 			return { ok: false, error: t("settings.err.layouts") };
 		}
 		return result(Array.from(new Set(value)));
+	}
+	if (key == "plua.liveDirectives.prefix")
+	{
+		return typeof value == "string" && /^[^\s]{1,3}$/.test(value) ? result(value) : { ok: false, error: t("settings.err.prefix") };
+	}
+	if (key == "plua.liveDirectives.commandSeparator")
+	{
+		return typeof value == "string" && /^[^\s\w]{1,4}$/.test(value) ? result(value) : { ok: false, error: t("settings.err.separator") };
+	}
+	if (key == "plua.liveDirectives.commandAliases")
+	{
+		if (!value || typeof value != "object" || Array.isArray(value)
+			|| Object.entries(value).some(([name, command]) => !/^\w+$/.test(name) || !require("./liveDirectives").COMMANDS.includes(command)))
+		{
+			return { ok: false, error: t("settings.err.aliases") };
+		}
+		return result(value);
 	}
 	if (key == "plua.layoutFixer.customMap")
 	{

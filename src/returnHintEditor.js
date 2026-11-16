@@ -7,9 +7,15 @@
 const vscode = require("vscode");
 const { findFunctionShapes } = require("./hints");
 const hint = require("./returnHint");
+const { createIdleController } = require("./idleController");
 const { t } = require("./i18n");
+const { PRIMITIVE_TYPES } = require("./analysis");
 
 const REMOVE_DELAY_MS = 600;
+const DIRECTIVE_DELAY_MS = 700;
+
+/** Set while the module is registered: arms the idle move of the cursor for the empty line that was just made. */
+let armIdle = function () { };
 
 function readOptions(document)
 {
@@ -17,6 +23,11 @@ function readOptions(document)
 	return {
 		autoReturn: config.get("format.autoReturn", true) !== false,
 		note: config.get("diagnostics.returnHint", true) !== false,
+		removeReturn: config.get("returnHelper.removeReturnWhenTypeMissing", true) !== false,
+		idleMove: config.get("returnHelper.moveCursorToReturnOnIdle", true) !== false,
+		idleDelayMs: Math.max(200, Number(config.get("returnHelper.idleDelayMs", 2000)) || 2000),
+		// the live directives carry `#return = ...` out when they are on
+		directive: config.get("returnHelper.enableReturnDirective", true) !== false && config.get("liveDirectives.enabled", true) === false,
 	};
 }
 
@@ -34,8 +45,9 @@ const shapesOf = (text) =>
 
 /**
  * @param {vscode.ExtensionContext} context
+ * @param {import("./extension").LanguageService} [service]
  */
-function registerReturnHint(context)
+function registerReturnHint(context, service)
 {
 	if (!vscode.window.createTextEditorDecorationType || !vscode.workspace.onDidChangeTextDocument)
 	{
@@ -49,6 +61,9 @@ function registerReturnHint(context)
 	});
 	context.subscriptions.push(decoration);
 	let busy = false;
+	/** Whether a type name is built in or a class or enum that the index knows. */
+	const isKnown = (name) => PRIMITIVE_TYPES.has(name)
+		|| !!(service && service.analyzer && service.analyzer.index.lookup(name).some(sym => sym.kind == "class" || sym.kind == "enum"));
 
 	const stateOf = (document) =>
 	{
@@ -56,7 +71,7 @@ function registerReturnHint(context)
 		let state = states.get(key);
 		if (!state)
 		{
-			state = { text: document.getText(), flagged: new Set(), timer: null, pending: new Set(), memory: new Set() };
+			state = { text: document.getText(), flagged: new Set(), timer: null, dirTimer: null, pending: new Set(), pendingVoid: new Set(), memory: new Set(), suppressed: new Set() };
 			hint.track(shapesOf(state.text), state.flagged, state.memory);
 			states.set(key, state);
 		}
@@ -113,11 +128,11 @@ function registerReturnHint(context)
 	const paintAll = () => vscode.window.visibleTextEditors.forEach(paint);
 
 	/** Takes the bare `return` away from the functions that lost their return type, once the colon has stayed away for a while. */
-	const removeBare = function (document, keys)
+	const removeBare = function (document, keys, voidKeys)
 	{
 		const state = stateOf(document);
 		state.timer = null;
-		if (!keys.length || !readOptions(document).autoReturn)
+		if (!keys.length || !readOptions(document).removeReturn)
 		{
 			return;
 		}
@@ -127,9 +142,11 @@ function registerReturnHint(context)
 		for (const key of keys)
 		{
 			const s = shapes.find(x => x.key == key);
-			if (s && s.onlyBareReturn && ((!s.hasColon && s.retType === null) || hint.isVoid(s.retType)))
+			// `void` only counts when the type was just changed to it; any other type has to be a usable one.
+			if (s && s.onlyBareReturn && (hint.isVoid(s.retType) ? voidKeys.includes(key) : !hint.typeIsValid(s.retType, isKnown)))
 			{
 				ranges.push(hint.removalRange(text, s.returns[0]));
+				state.suppressed.add(key); // Ctrl+Z brings the return back and it stays
 			}
 		}
 		if (!ranges.length)
@@ -148,6 +165,126 @@ function registerReturnHint(context)
 		})()).then(function () { busy = false; }, function () { busy = false; });
 	};
 
+	/** `#return = <expression>`: the line goes, the expression becomes the `return` at the end of the function. */
+	const runDirective = function (document)
+	{
+		const state = stateOf(document);
+		state.dirTimer = null;
+		if (!readOptions(document).directive)
+		{
+			return;
+		}
+		const text = document.getText();
+		const dirs = hint.findDirectives(text);
+		const editor = vscode.window.visibleTextEditors.find(e => e.document === document);
+		const options = editor ? editor.options : {};
+		const unit = options.insertSpaces === false ? "\t" : " ".repeat(Number(options.tabSize) || 4);
+		const eol = document.eol == vscode.EndOfLine.CRLF ? String.fromCharCode(13, 10) : String.fromCharCode(10);
+		for (const dir of dirs)
+		{
+			const next = hint.applyDirective(text.split(String.fromCharCode(13)).join(""), dir, unit, String.fromCharCode(10));
+			if (next === null)
+			{
+				continue;
+			}
+			// Positions are those of the text with LF breaks; on a CRLF document they are put back.
+			const plain = text.split(String.fromCharCode(13)).join("");
+			const change = hint.minimalEdit(plain, next);
+			const toOffset = (n) => (eol.length == 2 ? n + plain.slice(0, n).split(String.fromCharCode(10)).length - 1 : n);
+			busy = true;
+			const edit = new vscode.WorkspaceEdit();
+			edit.replace(document.uri, new vscode.Range(document.positionAt(toOffset(change.start)), document.positionAt(toOffset(change.end))), eol.length == 2 ? change.text.split(String.fromCharCode(10)).join(eol) : change.text);
+			vscode.workspace.applyEdit(edit).then(function () { busy = false; }, function () { busy = false; });
+			return;
+		}
+	};
+
+	// After the `return ` line was made below the empty line of the cursor: when the cursor rests there, the empty line goes and
+	// the cursor moves behind `return `. The timer stands still while a list of suggestions or the parameter hints are open.
+	const fireIdle = function (here)
+	{
+		const editor = vscode.window.activeTextEditor;
+		if (!here || !editor || editor.document !== here.document || editor.selections.length != 1 || !editor.selection.isEmpty)
+		{
+			return;
+		}
+		const document = here.document;
+		const line = here.line;
+		if (editor.selection.active.line != line || line < 1 || line + 1 >= document.lineCount
+			|| document.lineAt(line).text.trim() != "" || document.lineAt(line + 1).text.trim() != "return")
+		{
+			return;
+		}
+		busy = true;
+		const edit = new vscode.WorkspaceEdit();
+		edit.delete(document.uri, new vscode.Range(document.lineAt(line - 1).range.end, document.lineAt(line).range.end));
+		vscode.workspace.applyEdit(edit).then(function ()
+		{
+			busy = false;
+			const target = document.lineAt(line); // the `return` line has moved up
+			const spaced = target.text.endsWith(" ") ? target.text : target.text + " ";
+			const finish = () => { const end = document.lineAt(line).range.end; editor.selection = new vscode.Selection(end, end); };
+			if (spaced != target.text)
+			{
+				editor.edit(b => b.insert(target.range.end, " ")).then(finish, finish);
+			}
+			else
+			{
+				finish();
+			}
+		}, function () { busy = false; });
+	};
+	const idleCtl = createIdleController({
+		delay: () => { const d = idleCtl.data; return Math.max(200, d ? readOptions(d.document).idleDelayMs : 2000); },
+		onFire: fireIdle,
+		onContext: (armed) => { vscode.commands.executeCommand("setContext", "plua.idleArmed", armed); },
+	});
+	const cancelIdle = () => idleCtl.cancel();
+	armIdle = function (document, line)
+	{
+		if (!isPluto(document) || !readOptions(document).idleMove)
+		{
+			return;
+		}
+		idleCtl.arm({ document, line });
+	};
+	context.subscriptions.push({ dispose: () => { idleCtl.cancel(); armIdle = () => { }; } });
+	// Keys that open or use the list of suggestions / the parameter hints hold the timer, the ones that close them release it
+	// (see the keybindings of `plua.idle.key`).
+	context.subscriptions.push(vscode.commands.registerCommand("plua.idle.key", async function (command, mode)
+	{
+		if (mode == "hold")
+		{
+			idleCtl.hold(); // before the list opens: the timer must not fire in between
+		}
+		if (typeof command == "string")
+		{
+			await vscode.commands.executeCommand(command);
+		}
+		if (mode == "release")
+		{
+			idleCtl.release();
+		}
+	}));
+	if (vscode.window.onDidChangeTextEditorSelection)
+	{
+		context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(function (event)
+		{
+			const here = idleCtl.data;
+			if (here && event.textEditor.document === here.document)
+			{
+				if (event.selections.length != 1 || event.selections[0].active.line != here.line)
+				{
+					idleCtl.cancel();
+				}
+				else
+				{
+					idleCtl.touch(); // not while the list is open
+				}
+			}
+		}));
+	}
+
 	context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(function (event)
 	{
 		const document = event.document;
@@ -155,27 +292,76 @@ function registerReturnHint(context)
 		{
 			return;
 		}
+		const resting = idleCtl.data;
+		if (resting && resting.document === document && !busy)
+		{
+			cancelIdle(); // something was typed
+		}
 		const state = stateOf(document);
 		const text = document.getText();
 		const after = shapesOf(text);
 		state.text = text;
 		const result = hint.track(after, state.flagged, state.memory);
 		state.flagged = result.flagged;
+		const reasons = vscode.TextDocumentChangeReason;
+		const undoing = reasons && (event.reason === reasons.Undo || event.reason === reasons.Redo);
 		if (!busy)
 		{
-			result.removeBare.forEach(k => state.pending.add(k));
-			if (state.pending.size && readOptions(document).autoReturn)
+			const options = readOptions(document);
+			const lines = event.contentChanges.map(c => c.range.start.line);
+			const touched = after.filter(s => lines.some(l => l >= s.closeLine && l <= s.endLine)).map(s => s.key);
+			if (!undoing)
 			{
-				if (state.timer)
+				touched.forEach(k => state.suppressed.delete(k)); // an edit of the user ends the protection from the undo
+			}
+			if (options.removeReturn)
+			{
+				// Ctrl+Z that erased the value of a return counts like typing; only the undo of our own removal is let alone.
+				for (const k of undoing ? [] : result.removeBare)
 				{
-					clearTimeout(state.timer);
+					state.pending.add(k);
+					const s = after.find(x => x.key == k);
+					if (s && hint.isVoid(s.retType))
+					{
+						state.pendingVoid.add(k);
+					}
 				}
-				state.timer = setTimeout(function ()
+				// A bare `return` in a function whose type is missing or no type at all, in the functions that were just edited.
+				for (const k of hint.emptyReturnsWithoutType(after, isKnown))
 				{
-					const keys = [...state.pending];
-					state.pending.clear();
-					removeBare(document, keys);
-				}, REMOVE_DELAY_MS);
+					if (touched.includes(k) && !state.suppressed.has(k))
+					{
+						state.pending.add(k);
+					}
+				}
+				if (state.pending.size)
+				{
+					if (state.timer)
+					{
+						clearTimeout(state.timer);
+					}
+					state.timer = setTimeout(function ()
+					{
+						const keys = [...state.pending];
+						const voids = [...state.pendingVoid];
+						state.pending.clear();
+						state.pendingVoid.clear();
+						removeBare(document, keys, voids);
+					}, REMOVE_DELAY_MS);
+				}
+			}
+			if (options.directive)
+			{
+				const enter = event.contentChanges.find(c => c.rangeLength == 0 && /^(?:\r\n|\n)[ \t]*$/.test(c.text));
+				const lineNo = (enter || event.contentChanges[0]).range.start.line;
+				if (lineNo < document.lineCount && hint.DIRECTIVE.test(document.lineAt(lineNo).text.replace(/\r$/, "")))
+				{
+					if (state.dirTimer)
+					{
+						clearTimeout(state.dirTimer);
+					}
+					state.dirTimer = setTimeout(() => runDirective(document), enter ? 0 : DIRECTIVE_DELAY_MS);
+				}
 			}
 		}
 		paintAll();
@@ -187,6 +373,10 @@ function registerReturnHint(context)
 		if (state && state.timer)
 		{
 			clearTimeout(state.timer);
+		}
+		if (state && state.dirTimer)
+		{
+			clearTimeout(state.dirTimer);
 		}
 		states.delete(document.uri.toString());
 	}));
@@ -265,4 +455,4 @@ function registerReturnHint(context)
 	}
 }
 
-module.exports = { registerReturnHint, readOptions };
+module.exports = { registerReturnHint, readOptions, armIdle: (document, line) => armIdle(document, line) };
